@@ -2029,15 +2029,16 @@ async def send_message(request: Request, room_id: int, data: MessageCreate):
     room_name = conn.execute("SELECT name, type FROM chat_rooms WHERE id = ?", (room_id,)).fetchone()
     notif_title = (f"{user['username']}" if room_name and room_name["type"] == "direct"
                    else f"{user['username']} in {room_name['name'] or 'chat'}")
+    chat_link = f"/chat?room={room_id}"
     for m in members:
         _create_notification(conn, m["user_id"], "message",
-            notif_title, body[:120], "/chat")
+            notif_title, body[:120], chat_link)
     # Also handle @mentions specifically
     for username in set(re.findall(r'@(\w+)', body)):
         mentioned = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
         if mentioned and mentioned["id"] != user["id"]:
             _create_notification(conn, mentioned["id"], "mention",
-                f"{user['username']} mentioned you in chat", body[:120], "/chat")
+                f"{user['username']} mentioned you in chat", body[:120], chat_link)
     conn.commit()
     row = conn.execute("""
         SELECT m.id, m.body, m.created_at, u.id AS sender_id, u.username AS sender_name

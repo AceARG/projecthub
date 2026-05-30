@@ -2034,10 +2034,11 @@ function initNotifications() {
 function initChat() {
   if (!document.getElementById('chat-pane')) return;
 
-  let _activeRoomId = null;
-  let _lastMsgTime  = '';
-  let _pollInterval = null;
-  let _allRooms     = [];
+  let _activeRoomId  = null;
+  let _lastMsgTime   = '';
+  let _pollInterval  = null;
+  let _allRooms      = [];
+  const _renderedIds = new Set();
 
   async function loadRooms() {
     try {
@@ -2065,9 +2066,13 @@ function initChat() {
   function renderMessages(msgs, append = false) {
     const el = document.getElementById('chat-messages');
     if (!el) return;
-    if (!append) el.innerHTML = '';
+    if (!append) { el.innerHTML = ''; _renderedIds.clear(); }
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    let added = 0;
     msgs.forEach(m => {
+      if (_renderedIds.has(m.id)) return;   // deduplicate
+      _renderedIds.add(m.id);
+      _lastMsgTime = m.created_at;
       const div = document.createElement('div');
       const isMe = m.sender_name === (window.__currentUser || '');
       div.className = `chat-msg ${isMe ? 'chat-msg-me' : ''}`;
@@ -2079,9 +2084,9 @@ function initChat() {
         </div>
         <div class="chat-msg-body">${escapeHtml(m.body)}</div>`;
       el.appendChild(div);
-      if (msgs.length) _lastMsgTime = m.created_at;
+      added++;
     });
-    if (atBottom || !append) el.scrollTop = el.scrollHeight;
+    if (added > 0 && (atBottom || !append)) el.scrollTop = el.scrollHeight;
   }
 
   async function openRoom(roomId, name, members) {
@@ -2182,5 +2187,22 @@ function initChat() {
     } catch {}
   });
 
-  loadRooms();
+  // Auto-open room from ?room= query param (used by notification links)
+  async function init() {
+    await loadRooms();
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) {
+      const roomId = parseInt(roomParam);
+      const room = _allRooms.find(r => r.id === roomId);
+      if (room) {
+        openRoom(room.id, room.name || room.type, room.members);
+      } else {
+        // Room exists but user may have joined via DM — open it directly
+        openRoom(roomId, 'Chat', []);
+      }
+    }
+  }
+
+  init();
 }
