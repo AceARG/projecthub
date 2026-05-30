@@ -1,20 +1,20 @@
 /* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ── Tokens — Medieval Dark (default) ── */
+/* ── Tokens — Professional Dark (default) ── */
 :root {
-  --bg:          #0e0906;
-  --surface:     #1e1008;
-  --surface-2:   #2e180e;
-  --surface-3:   #3e2218;
-  --border:      #5a3018;
-  --text:        #f0ddb0;
-  --text-muted:  #9a7050;
-  --accent:      #c8920c;
-  --accent-h:    #e0a820;
-  --success:     #3a6e30;
-  --warning:     #b87020;
-  --danger:      #9a1818;
+  --bg:          #0d0f12;
+  --surface:     #161b22;
+  --surface-2:   #1f2937;
+  --surface-3:   #2d3748;
+  --border:      #374151;
+  --text:        #f9fafb;
+  --text-muted:  #9ca3af;
+  --accent:      #3b82f6;
+  --accent-h:    #60a5fa;
+  --success:     #059669;
+  --warning:     #d97706;
+  --danger:      #dc2626;
   --radius:      6px;
   --radius-lg:   12px;
   --shadow:      0 1px 3px rgba(0,0,0,.5);
