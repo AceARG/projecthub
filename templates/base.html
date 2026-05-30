@@ -26,6 +26,13 @@
       <a href="/insights" class="nav-link {% if request.url.path == '/insights' %}active{% endif %}">Insights</a>
     </div>
 
+    <div class="nav-search-wrap" id="nav-search-wrap">
+      <input type="text" class="nav-search-input" id="nav-search"
+             placeholder="Search…" autocomplete="off" spellcheck="false">
+      <kbd class="nav-search-kbd">/</kbd>
+      <div class="nav-search-results" id="nav-search-results"></div>
+    </div>
+
     <div class="nav-controls">
       <a href="/settings" class="profile-btn" title="Settings">
         {% if current_user.avatar %}

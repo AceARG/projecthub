@@ -2360,3 +2360,177 @@ img.profile-avatar {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--surface-3); }
+
+/* ── Search bar (PM-13) ── */
+.nav-search-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 320px;
+  margin: 0 16px;
+}
+
+.nav-search-input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  padding: 6px 32px 6px 12px;
+  outline: none;
+  transition: border-color .15s, background .15s;
+  font-family: inherit;
+}
+.nav-search-input::placeholder { color: var(--text-muted); }
+.nav-search-input:focus {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+.nav-search-kbd {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  pointer-events: none;
+  transition: opacity .15s;
+}
+.nav-search-input:focus ~ .nav-search-kbd { opacity: 0; }
+
+.nav-search-results {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 200;
+  overflow: hidden;
+}
+.nav-search-results.open { display: block; }
+
+.sr-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 13px;
+  transition: background .1s;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.sr-item:last-child { border-bottom: none; }
+.sr-item:hover,
+.sr-item:focus { background: var(--surface-2); outline: none; }
+
+.sr-color {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sr-ticket {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+  color: var(--text-muted);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.sr-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sr-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.sr-empty {
+  padding: 14px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ── Due date chips (PM-12) ── */
+.due-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.due-chip.due-soon {
+  background: rgba(184,112,32,.15);
+  color: var(--warning);
+  border-color: rgba(184,112,32,.35);
+}
+.due-chip.due-overdue {
+  background: rgba(154,24,24,.2);
+  color: var(--danger);
+  border-color: rgba(154,24,24,.4);
+}
+
+/* ── Mobile responsive (PM-15) ── */
+@media (max-width: 768px) {
+  /* Navbar: hide search, shrink */
+  .nav-search-wrap { display: none; }
+  .nav-links { margin-left: 12px; gap: 0; }
+  .nav-link { padding: 6px 10px; font-size: 13px; }
+  .navbar { padding: 0 14px; }
+
+  /* Main content padding */
+  main { padding: 16px 14px; }
+
+  /* Kanban: horizontal scroll */
+  .kanban-board { gap: 10px; }
+  .kanban-column { flex: 0 0 240px; }
+
+  /* Stats cards: 2 columns */
+  .stats-cards { grid-template-columns: repeat(2, 1fr); }
+
+  /* Phase board: smaller columns */
+  .phase-col { flex: 0 0 200px; }
+
+  /* Backlog items: stack badge below title */
+  .backlog-item { flex-wrap: wrap; gap: 8px; }
+  .backlog-item-info { min-width: 0; flex-basis: 100%; }
+
+  /* Settings page */
+  .settings-wrap { padding: 16px 14px 40px; }
+  .settings-profile-row { flex-direction: column; align-items: center; }
+
+  /* Page header: stack on small screens */
+  .page-header { flex-wrap: wrap; gap: 10px; }
+}

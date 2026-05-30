@@ -295,9 +295,27 @@ function initEditProject() {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // HTML Builders
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function fmtDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+}
+
+function dueCls(iso) {
+  if (!iso) return '';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due   = new Date(...iso.split('-').map((v,i) => i === 1 ? Number(v)-1 : Number(v)));
+  const diff  = (due - today) / 86400000;
+  if (diff < 0)  return 'due-overdue';
+  if (diff <= 3) return 'due-soon';
+  return '';
+}
+
 function makeCardHTML(task) {
   const taskType = task.type || 'task';
   const bugBadge = taskType === 'bug' ? `<span class="type-badge type-bug">🐛 Bug</span>` : '';
+  const dueBadge = task.due_date
+    ? `<span class="due-chip ${dueCls(task.due_date)}">${fmtDate(task.due_date)}</span>` : '';
   return `<div class="task-card" data-task-id="${task.id}" data-status="${escapeHtml(task.status || '')}" data-type="${taskType}" draggable="true">
     <div class="task-card-header">
       <span class="priority-dot ${escapeHtml(task.priority)}"></span>
@@ -310,7 +328,7 @@ function makeCardHTML(task) {
     ${task.description ? `<p class="task-desc">${escapeHtml(task.description)}</p>` : ''}
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
       ${task.ticket_id ? `<span class="ticket-id">${escapeHtml(task.ticket_id)}</span>` : ''}
-      ${bugBadge}
+      ${bugBadge}${dueBadge}
     </div>
   </div>`;
 }
@@ -318,6 +336,8 @@ function makeCardHTML(task) {
 function makeBacklogItemHTML(task) {
   const taskType = task.type || 'task';
   const bugBadge = taskType === 'bug' ? `<span class="type-badge type-bug">🐛 Bug</span>` : '';
+  const dueBadge = task.due_date
+    ? `<span class="due-chip ${dueCls(task.due_date)}">${fmtDate(task.due_date)}</span>` : '';
   const selCls = BL_STATUS_CLS[task.status] || 's-backlog';
   const opts = ['backlog','todo','in-progress','testing','done'].map(v =>
     `<option value="${v}"${task.status === v ? ' selected' : ''}>${STATUS_INFO[v]?.label || v}</option>`
@@ -330,6 +350,7 @@ function makeBacklogItemHTML(task) {
       <div class="backlog-item-title">${escapeHtml(task.title)}</div>
       ${task.description ? `<div class="backlog-item-desc">${escapeHtml(task.description)}</div>` : ''}
     </div>
+    ${dueBadge}
     <select class="bl-status-select ${selCls}" data-task-id="${task.id}">${opts}</select>
     <span class="priority-badge ${escapeHtml(task.priority)}">${escapeHtml(task.priority)}</span>
     <button class="btn-icon task-edit-btn" data-task-id="${task.id}" title="Edit">✎</button>
@@ -633,6 +654,8 @@ function initEditTask() {
       document.getElementById('edit-task-description').value = task.description || '';
       document.getElementById('edit-task-status').value      = task.status;
       document.getElementById('edit-task-priority').value    = task.priority;
+      const dueDateEl = document.getElementById('edit-task-due-date');
+      if (dueDateEl) dueDateEl.value = task.due_date || '';
 
       // Set type toggle
       const editType = task.type || 'task';
@@ -659,13 +682,14 @@ function initEditTask() {
     const status      = document.getElementById('edit-task-status').value;
     const priority    = document.getElementById('edit-task-priority').value;
     const type        = document.getElementById('edit-task-type')?.value || 'task';
+    const due_date    = document.getElementById('edit-task-due-date')?.value || null;
     if (!title) return;
 
     const phaseVal = document.getElementById('edit-task-phase')?.value;
     const phase_id = phaseVal ? parseInt(phaseVal) : null;
 
     try {
-      const task = await apiUpdateTask(taskId, { title, description, status, priority, type, phase_id });
+      const task = await apiUpdateTask(taskId, { title, description, status, priority, type, phase_id, due_date });
       closeModal('edit-task-modal');
       applyTaskEdit(taskId, _editOldStatus, _editOldPhaseId, task);
       _editOldStatus  = null;
@@ -882,13 +906,16 @@ function initAddTask(projectId) {
     const type        = document.getElementById('task-type')?.value || 'task';
     const phaseVal    = document.getElementById('task-phase')?.value;
     const phase_id    = phaseVal ? parseInt(phaseVal) : null;
+    const due_date    = document.getElementById('task-due-date')?.value || null;
     if (!title) return;
 
     try {
-      const task = await apiCreateTask(projectId, { title, description, status, priority, type, phase_id });
+      const task = await apiCreateTask(projectId, { title, description, status, priority, type, phase_id, due_date });
       closeModal('task-modal');
       e.target.reset();
       document.getElementById('task-status').value = 'todo';
+      const dueDateReset = document.getElementById('task-due-date');
+      if (dueDateReset) dueDateReset.value = '';
       // Reset type toggle to "task"
       const typeHidden = document.getElementById('task-type');
       if (typeHidden) typeHidden.value = 'task';
@@ -1481,6 +1508,98 @@ function initSettingsPage() {
   });
 }
 
+// ════════════════════════════════════════════════
+// Search (PM-13)
+// ════════════════════════════════════════════════
+function initSearch() {
+  const input   = document.getElementById('nav-search');
+  const results = document.getElementById('nav-search-results');
+  if (!input || !results) return;
+
+  let debounce;
+  const STATUS_LABEL = { 'todo': 'Todo', 'in-progress': 'In Progress', 'testing': 'Testing', 'done': 'Done', 'backlog': 'Backlog' };
+
+  input.addEventListener('input', () => {
+    clearTimeout(debounce);
+    const q = input.value.trim();
+    if (q.length < 2) { results.classList.remove('open'); return; }
+    debounce = setTimeout(async () => {
+      const data = await fetch(`/search?q=${encodeURIComponent(q)}`).then(r => r.json()).catch(() => ({ results: [] }));
+      if (!data.results.length) {
+        results.innerHTML = `<div class="sr-empty">No results for "${escapeHtml(q)}"</div>`;
+        results.classList.add('open');
+        return;
+      }
+      results.innerHTML = data.results.map(r => {
+        if (r.type === 'project') {
+          return `<a class="sr-item" href="/projects/${r.id}">
+            <span class="sr-color" style="background:${r.color}"></span>
+            <span class="sr-title">${escapeHtml(r.title)}</span>
+            <span class="sr-meta">Project</span>
+          </a>`;
+        }
+        return `<a class="sr-item" href="/projects/${r.project_id}">
+          <span class="sr-ticket">${escapeHtml(r.ticket_id)}</span>
+          <span class="sr-title">${escapeHtml(r.title)}</span>
+          <span class="sr-meta">${escapeHtml(r.project_name)} · ${STATUS_LABEL[r.status] || r.status}</span>
+        </a>`;
+      }).join('');
+      results.classList.add('open');
+    }, 220);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { input.value = ''; results.classList.remove('open'); input.blur(); }
+    if (e.key === 'Enter') {
+      const first = results.querySelector('.sr-item');
+      if (first) first.click();
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const items = [...results.querySelectorAll('.sr-item')];
+      const idx = items.indexOf(document.activeElement);
+      (items[idx + 1] || items[0])?.focus();
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const items = [...results.querySelectorAll('.sr-item')];
+      const idx = items.indexOf(document.activeElement);
+      (items[idx - 1] || items[items.length - 1])?.focus();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#nav-search-wrap')) results.classList.remove('open');
+  });
+}
+
+// ════════════════════════════════════════════════
+// Keyboard shortcuts (PM-14)
+// ════════════════════════════════════════════════
+function initKeyboardShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    const tag = document.activeElement?.tagName;
+    const typing = ['INPUT','TEXTAREA','SELECT'].includes(tag) || document.activeElement?.isContentEditable;
+
+    // / → focus search
+    if (e.key === '/' && !typing) {
+      e.preventDefault();
+      document.getElementById('nav-search')?.focus();
+      return;
+    }
+
+    if (typing) return;
+
+    // N → new project (dashboard) or new task (project page)
+    if (e.key === 'n' || e.key === 'N') {
+      const newTaskBtn = document.getElementById('add-backlog-task-btn');
+      const newProjBtn = document.querySelector('[onclick*="new-project-modal"]');
+      if (newTaskBtn) { document.getElementById('task-status').value = 'todo'; openModal('task-modal'); }
+      else if (newProjBtn) openModal('new-project-modal');
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initProfile();
@@ -1492,6 +1611,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initDeleteTask();
   initEditTask();
+  initSearch();
+  initKeyboardShortcuts();
 
   const projectId = document.body.dataset.projectId;
   if (projectId) {

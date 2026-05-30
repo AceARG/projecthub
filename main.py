@@ -10,11 +10,22 @@ import sqlite3
 import os
 import json
 import re
+from datetime import date, timedelta, datetime
 
 app = FastAPI(title="ProjectHub")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+def _fmt_date(value):
+    if not value:
+        return ""
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%b %d").replace(" 0", " ")
+    except Exception:
+        return value
+
+templates.env.filters["fmt_date"] = _fmt_date
 
 DATABASE   = os.getenv("DATABASE_PATH", "./data/projects.db")
 SECRET_KEY = os.getenv("SECRET_KEY", "ph-dev-secret-key-2026")
@@ -66,6 +77,11 @@ def get_db():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA cache_size = -64000")   # 64 MB page cache
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA mmap_size = 268435456") # 256 MB memory-mapped I/O
     return conn
 
 
@@ -132,6 +148,7 @@ def init_db():
         "ALTER TABLE tasks ADD COLUMN phase_id   INTEGER REFERENCES phases(id)",
         "ALTER TABLE tasks ADD COLUMN ticket_num INTEGER DEFAULT 0",
         "ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'task' CHECK(type IN ('task','bug'))",
+        "ALTER TABLE tasks ADD COLUMN due_date TEXT DEFAULT NULL",
     ]:
         try:
             conn.execute(col)
@@ -250,6 +267,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_plans_status     ON plans(status)",
         "CREATE INDEX IF NOT EXISTS idx_messages_plan    ON plan_messages(plan_id, step)",
         "CREATE INDEX IF NOT EXISTS idx_users_email      ON users(email)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_due_date   ON tasks(due_date)",
     ]
     for idx in indexes:
         conn.execute(idx)
@@ -281,6 +299,49 @@ def _plan_step(status: str) -> int:
 @app.on_event("startup")
 async def startup():
     init_db()
+
+
+# ──────────────────────────────────────────────
+# Search
+# ──────────────────────────────────────────────
+
+@app.get("/search")
+async def search(request: Request, q: str = ""):
+    user = _get_session_user(request)
+    if not user:
+        return {"results": []}
+    q = q.strip()
+    if len(q) < 2:
+        return {"results": []}
+    conn = get_db()
+    pattern = f"%{q}%"
+    tasks = conn.execute("""
+        SELECT t.id, t.title, t.status, t.project_id,
+               p.name AS project_name, p.ticket_prefix, t.ticket_num
+        FROM tasks t
+        JOIN projects p ON p.id = t.project_id
+        WHERE t.title LIKE ? OR t.description LIKE ?
+        ORDER BY t.created_at DESC
+        LIMIT 10
+    """, (pattern, pattern)).fetchall()
+    projects = conn.execute("""
+        SELECT id, name, color
+        FROM projects
+        WHERE name LIKE ? OR description LIKE ?
+        LIMIT 5
+    """, (pattern, pattern)).fetchall()
+    conn.close()
+    results = [
+        {"type": "task", "id": t["id"], "title": t["title"],
+         "status": t["status"], "project_id": t["project_id"],
+         "project_name": t["project_name"],
+         "ticket_id": f"{t['ticket_prefix']}-{t['ticket_num']}"}
+        for t in tasks
+    ] + [
+        {"type": "project", "id": p["id"], "title": p["name"], "color": p["color"]}
+        for p in projects
+    ]
+    return {"results": results}
 
 
 # ──────────────────────────────────────────────
@@ -455,6 +516,9 @@ async def project_view(request: Request, project_id: int):
         'insights': insights,
     }
 
+    today_str = date.today().isoformat()
+    soon_str  = (date.today() + timedelta(days=3)).isoformat()
+
     return templates.TemplateResponse("project.html", {
         "request": request,
         "project": project,
@@ -467,6 +531,8 @@ async def project_view(request: Request, project_id: int):
         "plan_items": plan_items,
         "active_phase": active_phase,
         "current_user": user,
+        "today": today_str,
+        "soon": soon_str,
     })
 
 
@@ -535,6 +601,7 @@ class TaskCreate(BaseModel):
     priority: Optional[str] = "medium"
     phase_id: Optional[int] = None
     type: Optional[str] = "task"
+    due_date: Optional[str] = None
 
 
 class TaskUpdate(BaseModel):
@@ -544,6 +611,7 @@ class TaskUpdate(BaseModel):
     priority: Optional[str] = None
     phase_id: Optional[int] = None
     type: Optional[str] = None
+    due_date: Optional[str] = None
 
 
 def _task_with_ticket(conn, task_id: int) -> dict:
@@ -570,9 +638,9 @@ async def create_task(project_id: int, task: TaskCreate):
         (project_id,)
     ).fetchone()[0]
     cur = conn.execute(
-        "INSERT INTO tasks (project_id, title, description, status, priority, phase_id, ticket_num, type) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        (project_id, task.title, task.description, task.status, task.priority, task.phase_id, next_num, task.type or 'task'),
+        "INSERT INTO tasks (project_id, title, description, status, priority, phase_id, ticket_num, type, due_date) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (project_id, task.title, task.description, task.status, task.priority, task.phase_id, next_num, task.type or 'task', task.due_date),
     )
     task_id = cur.lastrowid
     conn.commit()

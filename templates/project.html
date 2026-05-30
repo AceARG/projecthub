@@ -60,6 +60,11 @@
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             <span class="ticket-id">{{ project.ticket_prefix }}-{{ task.ticket_num }}</span>
             {% if task.type == 'bug' %}<span class="type-badge type-bug">🐛 Bug</span>{% endif %}
+            {% if task.due_date %}
+            <span class="due-chip {% if task.due_date < today %}due-overdue{% elif task.due_date <= soon %}due-soon{% endif %}">
+              {{ task.due_date | fmt_date }}
+            </span>
+            {% endif %}
           </div>
         </div>
         {% endfor %}
@@ -118,6 +123,11 @@
           <option value="testing"{% if task.status == 'testing' %} selected{% endif %}>Testing</option>
           <option value="done"{% if task.status == 'done' %} selected{% endif %}>Done</option>
         </select>
+        {% if task.due_date %}
+        <span class="due-chip {% if task.due_date < today %}due-overdue{% elif task.due_date <= soon %}due-soon{% endif %}">
+          {{ task.due_date | fmt_date }}
+        </span>
+        {% endif %}
         <span class="priority-badge {{ task.priority }}">{{ task.priority }}</span>
         <button class="btn-icon task-edit-btn" data-task-id="{{ task.id }}" title="Edit">✎</button>
         <button class="btn-icon task-delete-btn" data-task-id="{{ task.id }}" title="Delete">×</button>
@@ -505,6 +515,10 @@
             {% endfor %}
           </select>
         </div>
+        <div class="form-group">
+          <label class="form-label">Due date (optional)</label>
+          <input class="form-input" type="date" id="task-due-date">
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" onclick="closeModal('task-modal')">Cancel</button>
@@ -568,6 +582,10 @@
             <option value="{{ ph.id }}">{{ ph.name }}</option>
             {% endfor %}
           </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Due date (optional)</label>
+          <input class="form-input" type="date" id="edit-task-due-date">
         </div>
       </div>
       <div class="modal-footer">
