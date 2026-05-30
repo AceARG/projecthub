@@ -1462,11 +1462,26 @@ function initSettingsPage() {
       return;
     }
     const { avatar_url } = await res.json();
-    // Bust cache on all avatar images in the page
     const ts = Date.now();
-    document.querySelectorAll(`img[src^="/avatars/"]`).forEach(img => {
-      img.src = avatar_url + '?t=' + ts;
+    const bustedUrl = avatar_url + '?t=' + ts;
+
+    // Update any already-rendered avatar <img> elements on this page
+    document.querySelectorAll('img[src^="/avatars/"]').forEach(img => {
+      img.src = bustedUrl;
     });
+
+    // Swap nav initials <span> → <img> if user had no avatar before
+    const profileBtn = document.querySelector('.profile-btn');
+    if (profileBtn) {
+      const span = profileBtn.querySelector('span.profile-avatar');
+      if (span) {
+        const img = document.createElement('img');
+        img.src = bustedUrl;
+        img.className = 'profile-avatar';
+        img.alt = span.textContent.trim();
+        span.replaceWith(img);
+      }
+    }
   });
 
   // Name edit
@@ -2037,6 +2052,7 @@ function initChat() {
   let _activeRoomId  = null;
   let _lastMsgTime   = '';
   let _pollInterval  = null;
+  let _readInterval  = null;
   let _allRooms      = [];
   const _renderedIds = new Set();
 
@@ -2063,6 +2079,13 @@ function initChat() {
       </button>`).join('');
   }
 
+  function _highlightMentions(escaped) {
+    return escaped.replace(/@(\w+)/g, (_, name) => {
+      const isMe = name === window.__currentUser;
+      return `<span class="mention${isMe ? ' mention-me' : ''}">@${name}</span>`;
+    });
+  }
+
   function renderMessages(msgs, append = false) {
     const el = document.getElementById('chat-messages');
     if (!el) return;
@@ -2070,29 +2093,64 @@ function initChat() {
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     let added = 0;
     msgs.forEach(m => {
-      if (_renderedIds.has(m.id)) return;   // deduplicate
+      if (_renderedIds.has(m.id)) return;
       _renderedIds.add(m.id);
       _lastMsgTime = m.created_at;
       const div = document.createElement('div');
-      const isMe = m.sender_name === (window.__currentUser || '');
+      const isMe = m.sender_name === window.__currentUser;
       div.className = `chat-msg ${isMe ? 'chat-msg-me' : ''}`;
       div.dataset.msgId = m.id;
+      div.dataset.createdAt = m.created_at;
+      div.dataset.isMe = isMe ? '1' : '';
       div.innerHTML = `
         <div class="chat-msg-meta">
           <span class="chat-msg-author">${escapeHtml(m.sender_name)}</span>
           <span class="chat-msg-time">${_fmtCommentTime(m.created_at)}</span>
         </div>
-        <div class="chat-msg-body">${escapeHtml(m.body)}</div>`;
+        <div class="chat-msg-body">${_highlightMentions(escapeHtml(m.body))}</div>`;
       el.appendChild(div);
       added++;
     });
     if (added > 0 && (atBottom || !append)) el.scrollTop = el.scrollHeight;
   }
 
+  function updateReadIndicator(reads) {
+    const el = document.getElementById('chat-messages');
+    if (!el || !reads.length) return;
+    // Remove old indicators
+    el.querySelectorAll('.read-receipt').forEach(r => r.remove());
+    // Find the latest read timestamp across all other members
+    const latestRead = reads.reduce((max, r) => r.last_read_at > max ? r.last_read_at : max, '');
+    if (!latestRead) return;
+    // Find the last message sent by current user that the other side has read past
+    const myMsgs = [...el.querySelectorAll('.chat-msg[data-is-me="1"]')];
+    let target = null;
+    for (const msg of myMsgs) {
+      if (msg.dataset.createdAt <= latestRead) target = msg;
+    }
+    if (!target) return;
+    const receipt = document.createElement('div');
+    receipt.className = 'read-receipt';
+    receipt.textContent = reads.length === 1 ? `Seen by ${reads[0].username}` : `Seen by ${reads.length}`;
+    target.appendChild(receipt);
+  }
+
+  async function _markRead(roomId) {
+    try { await fetch(`/api/chat/rooms/${roomId}/read`, { method: 'POST' }); } catch {}
+  }
+
+  async function _fetchReads(roomId) {
+    try {
+      const reads = await fetch(`/api/chat/rooms/${roomId}/reads`).then(r => r.json());
+      updateReadIndicator(reads);
+    } catch {}
+  }
+
   async function openRoom(roomId, name, members) {
     _activeRoomId = roomId;
     _lastMsgTime  = new Date().toISOString().replace('T', ' ').slice(0, 19);
     clearInterval(_pollInterval);
+    clearInterval(_readInterval);
 
     document.getElementById('chat-empty').style.display  = 'none';
     document.getElementById('chat-pane').style.display   = 'flex';
@@ -2102,12 +2160,15 @@ function initChat() {
 
     renderRoomList();
 
-    // Load history, then set _lastMsgTime to the latest message
+    // Load history, mark as read, fetch read receipts
     const msgs = await fetch(`/api/chat/rooms/${roomId}/messages`).then(r => r.json());
     renderMessages(msgs);
     if (msgs.length) _lastMsgTime = msgs[msgs.length - 1].created_at;
+    _markRead(roomId);
+    _fetchReads(roomId);
 
-    // Poll every 2 seconds using `since` to fetch only new messages
+    // Poll every 2s for new messages only (read-only, no writes)
+    let _pollCount = 0;
     _pollInterval = setInterval(async () => {
       if (!_activeRoomId) return;
       try {
@@ -2115,8 +2176,16 @@ function initChat() {
           `/api/chat/rooms/${_activeRoomId}/messages?since=${encodeURIComponent(_lastMsgTime)}`
         ).then(r => r.json());
         if (newMsgs.length) renderMessages(newMsgs, true);
+        _pollCount++;
+        if (_pollCount % 15 === 0) _fetchReads(_activeRoomId);
       } catch {}
     }, 2000);
+
+    // Mark as read on a slow heartbeat (30s) — keeps read receipts current without hammering SQLite
+    if (_readInterval) clearInterval(_readInterval);
+    _readInterval = setInterval(() => {
+      if (_activeRoomId) _markRead(_activeRoomId);
+    }, 30000);
   }
 
   // Room list click (group rooms)
@@ -2159,6 +2228,7 @@ function initChat() {
         body: JSON.stringify({ body }),
       }).then(r => r.json());
       renderMessages([msg], true);
+      _markRead(_activeRoomId);
     } catch {}
   }
 

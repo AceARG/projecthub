@@ -347,6 +347,16 @@ def init_db():
         )
     """)
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_reads (
+            user_id    INTEGER NOT NULL,
+            room_id    INTEGER NOT NULL,
+            last_read_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, room_id),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS chat_messages (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             room_id    INTEGER NOT NULL,
@@ -380,6 +390,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_notif_user       ON notifications(user_id, is_read)",
         "CREATE INDEX IF NOT EXISTS idx_chat_members     ON chat_members(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_chat_messages    ON chat_messages(room_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_reads       ON chat_reads(room_id)",
     ]
     for idx in indexes:
         conn.execute(idx)
@@ -2046,3 +2057,42 @@ async def send_message(request: Request, room_id: int, data: MessageCreate):
     """, (msg_id,)).fetchone()
     conn.close()
     return dict(row)
+
+
+@app.post("/api/chat/rooms/{room_id}/read")
+async def mark_room_read(request: Request, room_id: int):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM chat_members WHERE room_id=? AND user_id=?",
+                        (room_id, user["id"])).fetchone():
+        conn.close()
+        raise HTTPException(status_code=403)
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("""
+        INSERT INTO chat_reads (user_id, room_id, last_read_at) VALUES (?, ?, ?)
+        ON CONFLICT(user_id, room_id) DO UPDATE SET last_read_at = excluded.last_read_at
+    """, (user["id"], room_id, now))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/chat/rooms/{room_id}/reads")
+async def get_room_reads(request: Request, room_id: int):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM chat_members WHERE room_id=? AND user_id=?",
+                        (room_id, user["id"])).fetchone():
+        conn.close()
+        raise HTTPException(status_code=403)
+    rows = conn.execute("""
+        SELECT u.id AS user_id, u.username, cr.last_read_at
+        FROM chat_reads cr JOIN users u ON u.id = cr.user_id
+        WHERE cr.room_id = ? AND cr.user_id != ?
+    """, (room_id, user["id"])).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

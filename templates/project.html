@@ -492,70 +492,78 @@
 
 <!-- ── Add Task Modal ── -->
 <div class="modal-overlay" id="task-modal">
-  <div class="modal">
+  <div class="modal modal-wide">
     <div class="modal-header">
       <h2 class="modal-title">Add Task</h2>
       <button class="modal-close" onclick="closeModal('task-modal')">×</button>
     </div>
     <form id="task-form">
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Title</label>
-          <input class="form-input" type="text" id="task-title" placeholder="What needs to be done?" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Description (optional)</label>
-          <textarea class="form-textarea" id="task-description" placeholder="Add more context..."></textarea>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Type</label>
-          <div class="type-toggle" id="task-type-toggle">
-            <button type="button" class="type-toggle-btn active" data-type="task">📋 Task</button>
-            <button type="button" class="type-toggle-btn" data-type="bug">🐛 Bug</button>
+      <div class="modal-body modal-body-cols">
+        <!-- Left: identity & content -->
+        <div class="modal-col">
+          <div class="form-group">
+            <label class="form-label">Title</label>
+            <input class="form-input" type="text" id="task-title" placeholder="What needs to be done?" required>
           </div>
-          <input type="hidden" id="task-type" value="task">
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-textarea" id="task-description" placeholder="Add more context…" rows="5"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Type</label>
+            <div class="type-toggle" id="task-type-toggle">
+              <button type="button" class="type-toggle-btn active" data-type="task">📋 Task</button>
+              <button type="button" class="type-toggle-btn" data-type="bug">🐛 Bug</button>
+            </div>
+            <input type="hidden" id="task-type" value="task">
+          </div>
         </div>
-        <div style="display:flex;gap:12px;">
-          <div class="form-group" style="flex:1;">
-            <label class="form-label">Status</label>
-            <select class="form-select" id="task-status">
-              <option value="backlog">Backlog</option>
-              <option value="todo" selected>Todo</option>
-              <option value="in-progress">In Progress</option>
-              <option value="testing">Testing</option>
-              <option value="done">Done</option>
+        <!-- Right: planning & metadata -->
+        <div class="modal-col">
+          <div class="modal-meta-pair">
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <select class="form-select" id="task-status">
+                <option value="backlog">Backlog</option>
+                <option value="todo" selected>Todo</option>
+                <option value="in-progress">In Progress</option>
+                <option value="testing">Testing</option>
+                <option value="done">Done</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Priority</label>
+              <select class="form-select" id="task-priority">
+                <option value="low">🟢 Low</option>
+                <option value="medium" selected>🟡 Medium</option>
+                <option value="high">🔴 High</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-meta-pair">
+            <div class="form-group">
+              <label class="form-label">Phase</label>
+              <select class="form-select phase-select" id="task-phase">
+                <option value="">— No Phase —</option>
+                {% for ph in phases %}
+                <option value="{{ ph.id }}">{{ ph.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Due date</label>
+              <input class="form-input" type="date" id="task-due-date">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assignee</label>
+            <select class="form-select" id="task-assignee">
+              <option value="">— Unassigned —</option>
+              {% for u in all_users %}
+              <option value="{{ u.id }}">{{ u.username }}</option>
+              {% endfor %}
             </select>
           </div>
-          <div class="form-group" style="flex:1;">
-            <label class="form-label">Priority</label>
-            <select class="form-select" id="task-priority">
-              <option value="low">🟢 Low</option>
-              <option value="medium" selected>🟡 Medium</option>
-              <option value="high">🔴 High</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Phase (optional)</label>
-          <select class="form-select phase-select" id="task-phase">
-            <option value="">— No Phase —</option>
-            {% for ph in phases %}
-            <option value="{{ ph.id }}">{{ ph.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Due date (optional)</label>
-          <input class="form-input" type="date" id="task-due-date">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Assignee (optional)</label>
-          <select class="form-select" id="task-assignee">
-            <option value="">— Unassigned —</option>
-            {% for u in all_users %}
-            <option value="{{ u.id }}">{{ u.username }}</option>
-            {% endfor %}
-          </select>
         </div>
       </div>
       <div class="modal-footer">
@@ -568,79 +576,86 @@
 
 <!-- ── Edit Task Modal ── -->
 <div class="modal-overlay" id="edit-task-modal">
-  <div class="modal">
+  <div class="modal modal-xl">
     <div class="modal-header">
       <h2 class="modal-title">Edit Task</h2>
       <button class="modal-close" onclick="closeModal('edit-task-modal')">×</button>
     </div>
     <form id="edit-task-form">
       <input type="hidden" id="edit-task-id">
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Title</label>
-          <input class="form-input" type="text" id="edit-task-title" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Description (optional)</label>
-          <textarea class="form-textarea" id="edit-task-description"></textarea>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Type</label>
-          <div class="type-toggle" id="edit-task-type-toggle">
-            <button type="button" class="type-toggle-btn active" data-type="task">📋 Task</button>
-            <button type="button" class="type-toggle-btn" data-type="bug">🐛 Bug</button>
+      <div class="modal-body modal-body-cols">
+        <!-- Left: identity & content -->
+        <div class="modal-col">
+          <div class="form-group">
+            <label class="form-label">Title</label>
+            <input class="form-input" type="text" id="edit-task-title" required>
           </div>
-          <input type="hidden" id="edit-task-type" value="task">
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-textarea" id="edit-task-description" rows="5"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Type</label>
+            <div class="type-toggle" id="edit-task-type-toggle">
+              <button type="button" class="type-toggle-btn active" data-type="task">📋 Task</button>
+              <button type="button" class="type-toggle-btn" data-type="bug">🐛 Bug</button>
+            </div>
+            <input type="hidden" id="edit-task-type" value="task">
+          </div>
         </div>
-        <div style="display:flex;gap:12px;">
-          <div class="form-group" style="flex:1;">
-            <label class="form-label">Status</label>
-            <select class="form-select" id="edit-task-status">
-              <option value="backlog">Backlog</option>
-              <option value="todo">Todo</option>
-              <option value="in-progress">In Progress</option>
-              <option value="testing">Testing</option>
-              <option value="done">Done</option>
+        <!-- Right: planning, metadata & dependencies -->
+        <div class="modal-col">
+          <div class="modal-meta-pair">
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <select class="form-select" id="edit-task-status">
+                <option value="backlog">Backlog</option>
+                <option value="todo">Todo</option>
+                <option value="in-progress">In Progress</option>
+                <option value="testing">Testing</option>
+                <option value="done">Done</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Priority</label>
+              <select class="form-select" id="edit-task-priority">
+                <option value="low">🟢 Low</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="high">🔴 High</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-meta-pair">
+            <div class="form-group">
+              <label class="form-label">Phase</label>
+              <select class="form-select phase-select" id="edit-task-phase">
+                <option value="">— No Phase —</option>
+                {% for ph in phases %}
+                <option value="{{ ph.id }}">{{ ph.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Due date</label>
+              <input class="form-input" type="date" id="edit-task-due-date">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assignee</label>
+            <select class="form-select" id="edit-task-assignee">
+              <option value="">— Unassigned —</option>
+              {% for u in all_users %}
+              <option value="{{ u.id }}">{{ u.username }}</option>
+              {% endfor %}
             </select>
           </div>
-          <div class="form-group" style="flex:1;">
-            <label class="form-label">Priority</label>
-            <select class="form-select" id="edit-task-priority">
-              <option value="low">🟢 Low</option>
-              <option value="medium">🟡 Medium</option>
-              <option value="high">🔴 High</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Phase</label>
-          <select class="form-select phase-select" id="edit-task-phase">
-            <option value="">— No Phase —</option>
-            {% for ph in phases %}
-            <option value="{{ ph.id }}">{{ ph.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Due date (optional)</label>
-          <input class="form-input" type="date" id="edit-task-due-date">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Assignee</label>
-          <select class="form-select" id="edit-task-assignee">
-            <option value="">— Unassigned —</option>
-            {% for u in all_users %}
-            <option value="{{ u.id }}">{{ u.username }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <!-- PM-19: Dependencies -->
-        <div class="form-group">
-          <label class="form-label">Blocked by</label>
-          <div class="dep-list" id="edit-dep-list"></div>
-          <div class="dep-search-wrap">
-            <input class="form-input" type="text" id="dep-search-input" placeholder="Search tasks…" autocomplete="off">
-            <div class="dep-search-results" id="dep-search-results"></div>
+          <div class="form-group">
+            <label class="form-label">Blocked by</label>
+            <div class="dep-list" id="edit-dep-list"></div>
+            <div class="dep-search-wrap">
+              <input class="form-input" type="text" id="dep-search-input" placeholder="Search tasks…" autocomplete="off">
+              <div class="dep-search-results" id="dep-search-results"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -649,9 +664,9 @@
         <button type="submit" class="btn btn-primary">Save Changes</button>
       </div>
     </form>
-    <!-- PM-17: Comments (outside form so submit doesn't include it) -->
-    <div class="comment-section">
-      <div class="comment-section-label">Comments</div>
+    <!-- Comments: full-width panel below the form -->
+    <div class="modal-comments">
+      <div class="modal-comments-label">Comments</div>
       <div class="comment-list" id="edit-comment-list"></div>
       <div class="comment-input-wrap">
         <textarea class="form-textarea comment-input" id="new-comment-text" placeholder="Add a comment…" rows="2"></textarea>

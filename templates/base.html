@@ -10,6 +10,7 @@
       var t=localStorage.getItem('ph-theme')||'professional';
       var m=localStorage.getItem('ph-mode')||'dark';
       document.documentElement.setAttribute('data-pending-theme',t+':'+m);
+      window.__currentUser = "{{ current_user.username }}";
     })();
   </script>
 </head>
