@@ -237,6 +237,23 @@ def init_db():
     except Exception:
         pass
 
+    # Indexes for high-volume queries
+    indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_tasks_project    ON tasks(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_status     ON tasks(status)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_phase      ON tasks(phase_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_priority   ON tasks(priority)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_proj_stat  ON tasks(project_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_proj_phase ON tasks(project_id, phase_id)",
+        "CREATE INDEX IF NOT EXISTS idx_phases_project   ON phases(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_plans_project    ON plans(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_plans_status     ON plans(status)",
+        "CREATE INDEX IF NOT EXISTS idx_messages_plan    ON plan_messages(plan_id, step)",
+        "CREATE INDEX IF NOT EXISTS idx_users_email      ON users(email)",
+    ]
+    for idx in indexes:
+        conn.execute(idx)
+
     conn.commit()
     conn.close()
 
