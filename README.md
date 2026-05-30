@@ -1,14 +1,32 @@
 # ProjectHub
 
-A self-hosted project management tool with kanban boards, phases, backlog tracking, and a built-in MCP server for Claude AI integration.
+A self-hosted project management and team collaboration tool. Kanban boards, phases, real-time chat, notifications, and a built-in MCP server for Claude AI integration — all running in a single Docker container.
 
 ## Features
 
-- **Projects** — kanban board, backlog, phases, and stats per project
-- **Auth** — signup, login, session-based authentication
-- **Settings** — profile picture upload, display name, password, appearance themes
-- **MCP server** — Claude AI can read and update your tasks directly via the CLI
-- **Multi-user ready** — runs on your local network, each user gets their own account
+### Project Management
+- **Kanban board** — drag-and-drop tasks across Todo, In Progress, Testing, and Done columns
+- **Backlog** — full task list grouped by phase with inline status updates and bulk actions
+- **Phases** — organise tasks into sprints or milestones with a planning drag-and-drop board
+- **Tasks** — title, description, type (task/bug), priority, status, due date, assignee, phase assignment
+- **Dependencies** — mark tasks as blocked by other tasks
+- **Comments** — threaded comments on tasks with @mention notifications
+- **Webhooks** — POST a JSON payload to any URL on task status change
+- **Stats** — completion ring, status breakdown, priority distribution, phase summaries, insights
+
+### Real-time Chat
+- **Direct messages** — one-on-one conversations with any team member
+- **Group rooms** — create named rooms, add/remove members, search and filter with avatar-chip picker
+- **WebSocket delivery** — messages appear instantly with no polling delay
+- **@mention autocomplete** — type `@` to get a filtered dropdown of room members; highlighted in rendered messages
+- **Read receipts** — "Seen by X" indicator on your last read message
+- **Notifications** — bell icon with unread count; clicking a notification opens the relevant chat room
+
+### People & Settings
+- **Multi-user** — each person gets their own account; runs on your local network
+- **Profile** — upload a profile photo (updates nav icon instantly), edit display name
+- **Password** — change password with strength indicator
+- **Themes** — 6 colour themes × light/dark mode: Professional, Hacking, Tron, Emerald Valley, Ember, Crimson
 
 ## Setup
 
@@ -63,7 +81,8 @@ Then from inside any repo, Claude can auto-detect and manage your project:
 
 ## Tech Stack
 
-- **Backend** — Python, FastAPI, SQLite
+- **Backend** — Python, FastAPI, SQLite (WAL mode)
+- **Real-time** — WebSockets (FastAPI native)
 - **Frontend** — Jinja2 templates, vanilla JS
 - **Auth** — itsdangerous signed cookies, bcrypt
 - **Container** — Docker + Docker Compose
