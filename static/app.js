@@ -2073,11 +2073,95 @@ function initChat() {
       return;
     }
     el.innerHTML = groups.map(r => `
-      <button class="chat-room-btn ${r.id === _activeRoomId ? 'active' : ''}"
-              data-room-id="${r.id}">
-        <span class="chat-room-icon">#</span>
-        <span class="chat-room-name">${escapeHtml(r.name || 'Unnamed')}</span>
-      </button>`).join('');
+      <div class="chat-room-item">
+        <button class="chat-room-btn ${r.id === _activeRoomId ? 'active' : ''}" data-room-id="${r.id}">
+          <span class="chat-room-icon">#</span>
+          <span class="chat-room-name">${escapeHtml(r.name || 'Unnamed')}</span>
+        </button>
+        <button class="chat-room-edit-btn btn-icon" data-room-id="${r.id}" title="Edit room">✎</button>
+      </div>`).join('');
+  }
+
+  // ── Member picker helpers ────────────────────────────────────────────────
+  function _pickerGetSelected() {
+    return [...document.querySelectorAll('#room-member-grid .member-chip.selected')]
+      .map(c => ({ id: parseInt(c.dataset.userId), username: c.dataset.username }));
+  }
+
+  function _pickerRenderTags() {
+    const tags = document.getElementById('room-selected-tags');
+    if (!tags) return;
+    const selected = _pickerGetSelected();
+    if (!selected.length) { tags.innerHTML = ''; return; }
+    tags.innerHTML = selected.map(u => `
+      <span class="selected-tag" data-user-id="${u.id}">
+        <span class="selected-tag-avatar">${escapeHtml(u.username[0].toUpperCase())}</span>
+        <span>${escapeHtml(u.username)}</span>
+        <span class="selected-tag-remove" data-user-id="${u.id}">×</span>
+      </span>`).join('');
+  }
+
+  function _pickerClear() {
+    document.querySelectorAll('#room-member-grid .member-chip').forEach(c => c.classList.remove('selected'));
+    _pickerRenderTags();
+    const search = document.getElementById('room-member-search');
+    if (search) { search.value = ''; _pickerFilter(''); }
+  }
+
+  function _pickerFilter(q) {
+    const lower = q.toLowerCase();
+    document.querySelectorAll('#room-member-grid .member-chip').forEach(chip => {
+      chip.style.display = chip.dataset.username.toLowerCase().includes(lower) ? '' : 'none';
+    });
+  }
+
+  function _pickerPreselect(memberIds) {
+    document.querySelectorAll('#room-member-grid .member-chip').forEach(chip => {
+      chip.classList.toggle('selected', memberIds.includes(parseInt(chip.dataset.userId)));
+    });
+    _pickerRenderTags();
+  }
+
+  function _initPickerEvents() {
+    document.getElementById('room-member-grid')?.addEventListener('click', e => {
+      const chip = e.target.closest('.member-chip');
+      if (!chip) return;
+      chip.classList.toggle('selected');
+      _pickerRenderTags();
+    });
+    document.getElementById('room-selected-tags')?.addEventListener('click', e => {
+      const btn = e.target.closest('.selected-tag-remove');
+      if (!btn) return;
+      const uid = btn.dataset.userId;
+      document.querySelector(`#room-member-grid .member-chip[data-user-id="${uid}"]`)
+        ?.classList.remove('selected');
+      _pickerRenderTags();
+    });
+    document.getElementById('room-member-search')?.addEventListener('input', e => {
+      _pickerFilter(e.target.value);
+    });
+  }
+
+  function openRoomModal(mode, room = null) {
+    const titleEl  = document.getElementById('room-modal-title');
+    const submitEl = document.getElementById('room-modal-submit');
+    const nameEl   = document.getElementById('room-modal-name');
+    const idEl     = document.getElementById('room-modal-id');
+    _pickerClear();
+    if (mode === 'edit' && room) {
+      titleEl.textContent  = 'Edit Group Room';
+      submitEl.textContent = 'Save Changes';
+      nameEl.value         = room.name || '';
+      idEl.value           = room.id;
+      _pickerPreselect(room.members.map(m => m.id));
+    } else {
+      titleEl.textContent  = 'New Group Room';
+      submitEl.textContent = 'Create Room';
+      nameEl.value         = '';
+      idEl.value           = '';
+    }
+    openModal('room-modal');
+    nameEl.focus();
   }
 
   function _highlightMentions(escaped) {
@@ -2216,8 +2300,14 @@ function initChat() {
     };
   }
 
-  // Room list click (group rooms)
+  // Room list click — open room or edit
   document.getElementById('room-list')?.addEventListener('click', async (e) => {
+    const editBtn = e.target.closest('.chat-room-edit-btn');
+    if (editBtn) {
+      const room = _allRooms.find(r => r.id === parseInt(editBtn.dataset.roomId));
+      if (room) openRoomModal('edit', room);
+      return;
+    }
     const btn = e.target.closest('.chat-room-btn');
     if (!btn) return;
     const room = _allRooms.find(r => r.id === parseInt(btn.dataset.roomId));
@@ -2260,28 +2350,150 @@ function initChat() {
     } catch {}
   }
 
+  // ── @mention autocomplete ───────────────────────────────────────────────
+  let _mentionIdx = -1;
+
+  function _getMentionQuery(input) {
+    const before = input.value.slice(0, input.selectionStart);
+    const m = before.match(/@(\w*)$/);
+    return m ? m[1] : null;
+  }
+
+  function _insertMention(input, username) {
+    const before = input.value.slice(0, input.selectionStart);
+    const after  = input.value.slice(input.selectionStart);
+    const replaced = before.replace(/@\w*$/, `@${username} `);
+    input.value = replaced + after;
+    input.setSelectionRange(replaced.length, replaced.length);
+  }
+
+  function _mentionCandidates(q) {
+    if (!_activeRoomId) return [];
+    const room = _allRooms.find(r => r.id === _activeRoomId);
+    if (!room) return [];
+    const lower = q.toLowerCase();
+    return room.members
+      .filter(m => m.username !== window.__currentUser && m.username.toLowerCase().startsWith(lower))
+      .slice(0, 6);
+  }
+
+  function _renderMentionDrop(members) {
+    const dd = document.getElementById('mention-dropdown');
+    if (!dd) return;
+    if (!members.length) { dd.style.display = 'none'; return; }
+    _mentionIdx = -1;
+    dd.innerHTML = members.map((m, i) => `
+      <div class="mention-item" data-idx="${i}" data-username="${escapeHtml(m.username)}">
+        <span class="mention-item-avatar">${escapeHtml(m.username[0].toUpperCase())}</span>
+        <span class="mention-item-name">${escapeHtml(m.username)}</span>
+        <span class="mention-item-at">@${escapeHtml(m.username)}</span>
+      </div>`).join('');
+    dd.style.display = 'block';
+  }
+
+  function _closeMentionDrop() {
+    const dd = document.getElementById('mention-dropdown');
+    if (dd) dd.style.display = 'none';
+    _mentionIdx = -1;
+  }
+
+  function _highlightMentionItem(idx) {
+    document.querySelectorAll('#mention-dropdown .mention-item').forEach((el, i) => {
+      el.classList.toggle('active', i === idx);
+    });
+  }
+
+  // Mention dropdown — click to select
+  document.getElementById('mention-dropdown')?.addEventListener('mousedown', e => {
+    const item = e.target.closest('.mention-item');
+    if (!item) return;
+    e.preventDefault();
+    const input = document.getElementById('chat-input');
+    _insertMention(input, item.dataset.username);
+    _closeMentionDrop();
+    input.focus();
+  });
+
+  // Close when clicking outside
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#mention-dropdown') && !e.target.closest('#chat-input')) {
+      _closeMentionDrop();
+    }
+  });
+
   document.getElementById('chat-send-btn')?.addEventListener('click', sendMsg);
+
+  document.getElementById('chat-input')?.addEventListener('input', () => {
+    const input = document.getElementById('chat-input');
+    const q = _getMentionQuery(input);
+    if (q === null) { _closeMentionDrop(); return; }
+    _renderMentionDrop(_mentionCandidates(q));
+  });
+
   document.getElementById('chat-input')?.addEventListener('keydown', (e) => {
+    const dd = document.getElementById('mention-dropdown');
+    const ddOpen = dd && dd.style.display !== 'none';
+
+    if (ddOpen) {
+      const items = dd.querySelectorAll('.mention-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _mentionIdx = Math.min(_mentionIdx + 1, items.length - 1);
+        _highlightMentionItem(_mentionIdx);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _mentionIdx = Math.max(_mentionIdx - 1, 0);
+        _highlightMentionItem(_mentionIdx);
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && _mentionIdx >= 0) {
+        e.preventDefault();
+        const input = document.getElementById('chat-input');
+        _insertMention(input, items[_mentionIdx].dataset.username);
+        _closeMentionDrop();
+        return;
+      }
+      if (e.key === 'Escape') { _closeMentionDrop(); return; }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
   });
 
-  // New group room modal
-  document.getElementById('new-room-btn')?.addEventListener('click', () => openModal('new-room-modal'));
-  document.getElementById('create-room-btn')?.addEventListener('click', async () => {
-    const name = document.getElementById('new-room-name').value.trim();
-    if (!name) return;
-    const member_ids = [...document.querySelectorAll('.room-member-cb:checked')]
-      .map(cb => parseInt(cb.value));
+  // Create / Edit group room modal
+  _initPickerEvents();
+  document.getElementById('new-room-btn')?.addEventListener('click', () => openRoomModal('create'));
+  document.getElementById('room-modal-submit')?.addEventListener('click', async () => {
+    const name      = document.getElementById('room-modal-name').value.trim();
+    const roomId    = document.getElementById('room-modal-id').value;
+    const memberIds = _pickerGetSelected().map(u => u.id);
+    if (!name) { document.getElementById('room-modal-name').focus(); return; }
     try {
-      await fetch('/api/chat/rooms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, member_ids }),
-      });
-      closeModal('new-room-modal');
-      document.getElementById('new-room-name').value = '';
-      document.querySelectorAll('.room-member-cb').forEach(cb => cb.checked = false);
+      if (roomId) {
+        await fetch(`/api/chat/rooms/${roomId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, member_ids: memberIds }),
+        });
+      } else {
+        const res = await fetch('/api/chat/rooms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, member_ids: memberIds }),
+        }).then(r => r.json());
+        await loadRooms();
+        const room = _allRooms.find(r => r.id === res.id) || { id: res.id, members: [] };
+        closeModal('room-modal');
+        openRoom(res.id, name, room.members);
+        return;
+      }
+      closeModal('room-modal');
       await loadRooms();
+      // Refresh header if we edited the active room
+      if (roomId && parseInt(roomId) === _activeRoomId) {
+        document.getElementById('chat-pane-name').textContent = name;
+      }
     } catch {}
   });
 

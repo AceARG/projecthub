@@ -1902,6 +1902,10 @@ class ChatRoomCreate(BaseModel):
     name: str
     member_ids: List[int] = []
 
+class ChatRoomEdit(BaseModel):
+    name: Optional[str] = None
+    member_ids: Optional[List[int]] = None
+
 class DirectRoomCreate(BaseModel):
     other_user_id: int
 
@@ -1982,6 +1986,33 @@ async def create_group_room(request: Request, data: ChatRoomCreate):
     conn.commit()
     conn.close()
     return {"id": room_id, "name": data.name, "type": "group"}
+
+
+@app.patch("/api/chat/rooms/{room_id}")
+async def edit_group_room(request: Request, room_id: int, data: ChatRoomEdit):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    room = conn.execute(
+        "SELECT id, type FROM chat_rooms WHERE id=?", (room_id,)
+    ).fetchone()
+    if not room or room["type"] != "group":
+        conn.close()
+        raise HTTPException(status_code=404)
+    if not conn.execute("SELECT 1 FROM chat_members WHERE room_id=? AND user_id=?",
+                        (room_id, user["id"])).fetchone():
+        conn.close()
+        raise HTTPException(status_code=403)
+    if data.name is not None:
+        conn.execute("UPDATE chat_rooms SET name=? WHERE id=?", (data.name.strip(), room_id))
+    if data.member_ids is not None:
+        conn.execute("DELETE FROM chat_members WHERE room_id=?", (room_id,))
+        for uid in set(data.member_ids) | {user["id"]}:
+            conn.execute("INSERT OR IGNORE INTO chat_members (room_id, user_id) VALUES (?, ?)", (room_id, uid))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 
 @app.post("/api/chat/rooms/direct")

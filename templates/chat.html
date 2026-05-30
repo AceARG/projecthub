@@ -42,40 +42,47 @@
       </div>
       <div class="chat-messages" id="chat-messages"></div>
       <div class="chat-input-wrap">
-        <textarea class="chat-input" id="chat-input" placeholder="Type a message… use @username to mention" rows="1"></textarea>
+        <div class="mention-dropdown" id="mention-dropdown" style="display:none"></div>
+        <textarea class="chat-input" id="chat-input" placeholder="Type a message… use @ to mention" rows="1"></textarea>
         <button class="btn btn-primary chat-send-btn" id="chat-send-btn">Send</button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- New Group Room Modal -->
-<div class="modal-overlay" id="new-room-modal">
-  <div class="modal">
+<!-- Create / Edit Group Room Modal -->
+<div class="modal-overlay" id="room-modal">
+  <div class="modal modal-wide">
     <div class="modal-header">
-      <h2 class="modal-title">New Group Room</h2>
-      <button class="modal-close" onclick="closeModal('new-room-modal')">×</button>
+      <h2 class="modal-title" id="room-modal-title">New Group Room</h2>
+      <button class="modal-close" onclick="closeModal('room-modal')">×</button>
     </div>
     <div class="modal-body">
+      <input type="hidden" id="room-modal-id">
       <div class="form-group">
         <label class="form-label">Room name</label>
-        <input class="form-input" type="text" id="new-room-name" placeholder="e.g. Design, Engineering…">
+        <input class="form-input" type="text" id="room-modal-name" placeholder="e.g. Design, Engineering…" maxlength="48">
       </div>
       <div class="form-group">
         <label class="form-label">Members</label>
-        <div class="chat-member-checks">
-          {% for u in all_users %}
-          <label class="chat-member-check">
-            <input type="checkbox" class="room-member-cb" value="{{ u.id }}">
-            <span>{{ u.username }}</span>
-          </label>
-          {% endfor %}
+        <div class="member-picker">
+          <div class="member-picker-tags" id="room-selected-tags"></div>
+          <input class="form-input member-picker-search" type="text" id="room-member-search" placeholder="Search people…" autocomplete="off">
+          <div class="member-picker-grid" id="room-member-grid">
+            {% for u in all_users %}
+            <div class="member-chip" data-user-id="{{ u.id }}" data-username="{{ u.username }}">
+              <div class="member-chip-avatar">{{ u.username[0] | upper }}</div>
+              <span class="member-chip-name">{{ u.username }}</span>
+              <span class="member-chip-check">✓</span>
+            </div>
+            {% endfor %}
+          </div>
         </div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('new-room-modal')">Cancel</button>
-      <button class="btn btn-primary" id="create-room-btn">Create Room</button>
+      <button class="btn btn-secondary" onclick="closeModal('room-modal')">Cancel</button>
+      <button class="btn btn-primary" id="room-modal-submit">Create Room</button>
     </div>
   </div>
 </div>
