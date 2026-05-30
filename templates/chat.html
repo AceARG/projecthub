@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Chat — ProjectHub{% endblock %}
+
+{% block content %}
+<div class="chat-layout">
+
+  <!-- Sidebar -->
+  <aside class="chat-sidebar">
+    <div class="chat-sidebar-header">
+      <span class="chat-sidebar-title">Rooms</span>
+      <button class="btn-icon" id="new-room-btn" title="New group room">+</button>
+    </div>
+
+    <div class="chat-dm-section">
+      <div class="chat-section-label">Direct Messages</div>
+      {% for u in all_users %}
+      <button class="chat-dm-btn" data-user-id="{{ u.id }}" data-username="{{ u.username }}">
+        <span class="chat-avatar">{{ u.username[0] | upper }}</span>
+        <span class="chat-dm-name">{{ u.username }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <div class="chat-rooms-section">
+      <div class="chat-section-label">Group Rooms</div>
+      <div id="room-list"></div>
+    </div>
+  </aside>
+
+  <!-- Main pane -->
+  <div class="chat-main" id="chat-main">
+    <div class="chat-empty-state" id="chat-empty">
+      <div class="chat-empty-icon">💬</div>
+      <div class="chat-empty-text">Select a conversation to start chatting</div>
+    </div>
+
+    <div class="chat-pane" id="chat-pane" style="display:none">
+      <div class="chat-pane-header" id="chat-pane-header">
+        <span class="chat-pane-name" id="chat-pane-name"></span>
+        <span class="chat-pane-members" id="chat-pane-members"></span>
+      </div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-wrap">
+        <textarea class="chat-input" id="chat-input" placeholder="Type a message… use @username to mention" rows="1"></textarea>
+        <button class="btn btn-primary chat-send-btn" id="chat-send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Group Room Modal -->
+<div class="modal-overlay" id="new-room-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title">New Group Room</h2>
+      <button class="modal-close" onclick="closeModal('new-room-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Room name</label>
+        <input class="form-input" type="text" id="new-room-name" placeholder="e.g. Design, Engineering…">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Members</label>
+        <div class="chat-member-checks">
+          {% for u in all_users %}
+          <label class="chat-member-check">
+            <input type="checkbox" class="room-member-cb" value="{{ u.id }}">
+            <span>{{ u.username }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('new-room-modal')">Cancel</button>
+      <button class="btn btn-primary" id="create-room-btn">Create Room</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', () => initChat());
+</script>
+{% endblock %}

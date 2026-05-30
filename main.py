@@ -168,10 +168,11 @@ def init_db():
         )
     """)
     for col in [
-        "ALTER TABLE tasks ADD COLUMN phase_id   INTEGER REFERENCES phases(id)",
-        "ALTER TABLE tasks ADD COLUMN ticket_num INTEGER DEFAULT 0",
-        "ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'task' CHECK(type IN ('task','bug'))",
-        "ALTER TABLE tasks ADD COLUMN due_date TEXT DEFAULT NULL",
+        "ALTER TABLE tasks ADD COLUMN phase_id     INTEGER REFERENCES phases(id)",
+        "ALTER TABLE tasks ADD COLUMN ticket_num   INTEGER DEFAULT 0",
+        "ALTER TABLE tasks ADD COLUMN type         TEXT DEFAULT 'task' CHECK(type IN ('task','bug'))",
+        "ALTER TABLE tasks ADD COLUMN due_date     TEXT DEFAULT NULL",
+        "ALTER TABLE tasks ADD COLUMN assigned_to  INTEGER REFERENCES users(id)",
     ]:
         try:
             conn.execute(col)
@@ -312,6 +313,50 @@ def init_db():
             FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
     """)
+    # PM-7: Notifications
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    INTEGER NOT NULL,
+            type       TEXT    NOT NULL,
+            title      TEXT    NOT NULL,
+            body       TEXT    DEFAULT '',
+            link       TEXT    DEFAULT '',
+            is_read    INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    # PM-8: Chat rooms, members, messages
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_rooms (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    DEFAULT '',
+            type       TEXT    NOT NULL DEFAULT 'group'
+                       CHECK(type IN ('direct','group')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_members (
+            room_id    INTEGER NOT NULL,
+            user_id    INTEGER NOT NULL,
+            PRIMARY KEY (room_id, user_id),
+            FOREIGN KEY(room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id)      ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_id    INTEGER NOT NULL,
+            sender_id  INTEGER NOT NULL,
+            body       TEXT    NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(room_id)   REFERENCES chat_rooms(id) ON DELETE CASCADE,
+            FOREIGN KEY(sender_id) REFERENCES users(id)      ON DELETE CASCADE
+        )
+    """)
 
     # Indexes for high-volume queries
     indexes = [
@@ -331,6 +376,10 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_deps_task        ON task_dependencies(task_id)",
         "CREATE INDEX IF NOT EXISTS idx_deps_on          ON task_dependencies(depends_on)",
         "CREATE INDEX IF NOT EXISTS idx_webhooks_proj    ON webhook_configs(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_assignee   ON tasks(assigned_to)",
+        "CREATE INDEX IF NOT EXISTS idx_notif_user       ON notifications(user_id, is_read)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_members     ON chat_members(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_messages    ON chat_messages(room_id, created_at)",
     ]
     for idx in indexes:
         conn.execute(idx)
@@ -477,7 +526,13 @@ async def project_view(request: Request, project_id: int):
         (project_id,),
     ).fetchall()
 
+    # PM-6: all users for assignee picker
+    all_users_raw = conn.execute(
+        "SELECT id, username, avatar FROM users ORDER BY username"
+    ).fetchall()
+
     conn.close()
+    all_users = [dict(u) for u in all_users_raw]
     webhooks = [dict(w) for w in webhooks_raw]
 
     plan_items = []
@@ -615,6 +670,7 @@ async def project_view(request: Request, project_id: int):
         "soon": soon_str,
         "blocked_ids": blocked_ids,
         "webhooks": webhooks,
+        "all_users": all_users,
     })
 
 
@@ -684,6 +740,7 @@ class TaskCreate(BaseModel):
     phase_id: Optional[int] = None
     type: Optional[str] = "task"
     due_date: Optional[str] = None
+    assigned_to: Optional[int] = None
 
 
 class TaskUpdate(BaseModel):
@@ -694,14 +751,24 @@ class TaskUpdate(BaseModel):
     phase_id: Optional[int] = None
     type: Optional[str] = None
     due_date: Optional[str] = None
+    assigned_to: Optional[int] = None
+
+
+def _create_notification(conn, user_id: int, ntype: str, title: str, body: str = "", link: str = ""):
+    conn.execute(
+        "INSERT INTO notifications (user_id, type, title, body, link) VALUES (?, ?, ?, ?, ?)",
+        (user_id, ntype, title, body, link),
+    )
 
 
 def _task_with_ticket(conn, task_id: int) -> dict:
-    """Fetch a task row and attach ticket_id and is_blocked."""
+    """Fetch a task row and attach ticket_id, is_blocked, and assignee info."""
     row = conn.execute("""
-        SELECT t.*, p.ticket_prefix
+        SELECT t.*, p.ticket_prefix,
+               u.username AS assignee_username
         FROM tasks t
         JOIN projects p ON p.id = t.project_id
+        LEFT JOIN users u ON u.id = t.assigned_to
         WHERE t.id = ?
     """, (task_id,)).fetchone()
     if not row:
@@ -726,11 +793,14 @@ async def create_task(project_id: int, task: TaskCreate):
         (project_id,)
     ).fetchone()[0]
     cur = conn.execute(
-        "INSERT INTO tasks (project_id, title, description, status, priority, phase_id, ticket_num, type, due_date) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
-        (project_id, task.title, task.description, task.status, task.priority, task.phase_id, next_num, task.type or 'task', task.due_date),
+        "INSERT INTO tasks (project_id, title, description, status, priority, phase_id, ticket_num, type, due_date, assigned_to) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (project_id, task.title, task.description, task.status, task.priority, task.phase_id, next_num, task.type or 'task', task.due_date, task.assigned_to),
     )
     task_id = cur.lastrowid
+    if task.assigned_to:
+        _create_notification(conn, task.assigned_to, "assignment",
+            "You were assigned a task", task.title, f"/projects/{project_id}")
     conn.commit()
     result = _task_with_ticket(conn, task_id)
     conn.close()
@@ -784,11 +854,18 @@ async def update_task(task_id: int, task: TaskUpdate):
         raise HTTPException(status_code=400, detail="Nothing to update")
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     conn = get_db()
-    old_row = conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    old_status = old_row["status"] if old_row else None
+    old_row = conn.execute("SELECT status, assigned_to FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    old_status   = old_row["status"]      if old_row else None
+    old_assigned = old_row["assigned_to"] if old_row else None
     conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", (*updates.values(), task_id))
-    conn.commit()
     result = _task_with_ticket(conn, task_id)
+    new_assigned = updates.get("assigned_to")
+    if new_assigned and new_assigned != old_assigned:
+        _create_notification(conn, new_assigned, "assignment",
+            "You were assigned a task",
+            result.get("title", ""),
+            f"/projects/{result.get('project_id', '')}")
+    conn.commit()
     conn.close()
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -878,6 +955,15 @@ async def create_task_comment(request: Request, task_id: int, data: CommentCreat
         (task_id, user["id"], content),
     )
     cid = cur.lastrowid
+    # Parse @mentions and notify mentioned users
+    task_info = conn.execute("SELECT title, project_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    for username in set(re.findall(r'@(\w+)', content)):
+        mentioned = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        if mentioned and mentioned["id"] != user["id"]:
+            _create_notification(conn, mentioned["id"], "mention",
+                f"{user['username']} mentioned you in a comment",
+                content[:120],
+                f"/projects/{task_info['project_id']}" if task_info else "")
     conn.commit()
     row = conn.execute("""
         SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username
@@ -1704,3 +1790,246 @@ async def get_avatar(user_id: int):
         media_type=row["avatar"],
         headers={"Cache-Control": "no-store"},
     )
+
+
+# ── PM-6: Users list (for assignee picker) ────────────────────────────────────
+
+@app.get("/api/users")
+async def list_users(request: Request):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    rows = conn.execute("SELECT id, username, avatar FROM users ORDER BY username").fetchall()
+    conn.close()
+    return [{"id": r["id"], "username": r["username"], "has_avatar": bool(r["avatar"])} for r in rows]
+
+
+# ── PM-7: Notifications ───────────────────────────────────────────────────────
+
+@app.get("/notifications")
+async def get_notifications(request: Request):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM notifications WHERE user_id = ?
+        ORDER BY is_read ASC, created_at DESC LIMIT 30
+    """, (user["id"],)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/notifications/unread-count")
+async def get_unread_count(request: Request):
+    user = _get_session_user(request)
+    if not user:
+        return {"count": 0}
+    conn = get_db()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0",
+        (user["id"],)
+    ).fetchone()[0]
+    conn.close()
+    return {"count": count}
+
+
+@app.post("/notifications/{notif_id}/read")
+async def mark_notification_read(request: Request, notif_id: int):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    conn.execute("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
+                 (notif_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.post("/notifications/read-all")
+async def mark_all_read(request: Request):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    conn.execute("UPDATE notifications SET is_read = 1 WHERE user_id = ?", (user["id"],))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+# ── PM-8: Chat ────────────────────────────────────────────────────────────────
+
+class ChatRoomCreate(BaseModel):
+    name: str
+    member_ids: List[int] = []
+
+class DirectRoomCreate(BaseModel):
+    other_user_id: int
+
+class MessageCreate(BaseModel):
+    body: str
+
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page(request: Request):
+    user = _get_session_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    conn = get_db()
+    all_users = conn.execute(
+        "SELECT id, username, avatar FROM users WHERE id != ? ORDER BY username",
+        (user["id"],)
+    ).fetchall()
+    conn.close()
+    return templates.TemplateResponse("chat.html", {
+        "request": request,
+        "current_user": user,
+        "all_users": [dict(u) for u in all_users],
+    })
+
+
+@app.get("/api/chat/rooms")
+async def list_chat_rooms(request: Request):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    rooms = conn.execute("""
+        SELECT r.id, r.name, r.type,
+               (SELECT body FROM chat_messages WHERE room_id = r.id
+                ORDER BY created_at DESC LIMIT 1) AS last_message,
+               (SELECT created_at FROM chat_messages WHERE room_id = r.id
+                ORDER BY created_at DESC LIMIT 1) AS last_at
+        FROM chat_rooms r
+        JOIN chat_members m ON m.room_id = r.id
+        WHERE m.user_id = ?
+        ORDER BY last_at DESC, r.created_at DESC
+    """, (user["id"],)).fetchall()
+    result = []
+    for r in rooms:
+        d = dict(r)
+        if r["type"] == "direct":
+            other = conn.execute("""
+                SELECT u.id, u.username FROM users u
+                JOIN chat_members cm ON cm.user_id = u.id
+                WHERE cm.room_id = ? AND u.id != ?
+            """, (r["id"], user["id"])).fetchone()
+            if other:
+                d["name"] = other["username"]
+                d["other_user_id"] = other["id"]
+        members = conn.execute("""
+            SELECT u.id, u.username FROM users u
+            JOIN chat_members cm ON cm.user_id = u.id WHERE cm.room_id = ?
+        """, (r["id"],)).fetchall()
+        d["members"] = [{"id": m["id"], "username": m["username"]} for m in members]
+        result.append(d)
+    conn.close()
+    return result
+
+
+@app.post("/api/chat/rooms")
+async def create_group_room(request: Request, data: ChatRoomCreate):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    if not data.name.strip():
+        raise HTTPException(status_code=400, detail="Room name required")
+    conn = get_db()
+    cur = conn.execute("INSERT INTO chat_rooms (name, type) VALUES (?, 'group')", (data.name.strip(),))
+    room_id = cur.lastrowid
+    member_ids = list({user["id"]} | set(data.member_ids))
+    for uid in member_ids:
+        conn.execute("INSERT OR IGNORE INTO chat_members (room_id, user_id) VALUES (?, ?)", (room_id, uid))
+    conn.commit()
+    conn.close()
+    return {"id": room_id, "name": data.name, "type": "group"}
+
+
+@app.post("/api/chat/rooms/direct")
+async def get_or_create_direct(request: Request, data: DirectRoomCreate):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    if user["id"] == data.other_user_id:
+        raise HTTPException(status_code=400, detail="Cannot DM yourself")
+    conn = get_db()
+    existing = conn.execute("""
+        SELECT r.id FROM chat_rooms r
+        JOIN chat_members m1 ON m1.room_id = r.id AND m1.user_id = ?
+        JOIN chat_members m2 ON m2.room_id = r.id AND m2.user_id = ?
+        WHERE r.type = 'direct' LIMIT 1
+    """, (user["id"], data.other_user_id)).fetchone()
+    if existing:
+        conn.close()
+        return {"id": existing["id"], "type": "direct"}
+    cur = conn.execute("INSERT INTO chat_rooms (type) VALUES ('direct')")
+    room_id = cur.lastrowid
+    conn.execute("INSERT INTO chat_members (room_id, user_id) VALUES (?, ?)", (room_id, user["id"]))
+    conn.execute("INSERT INTO chat_members (room_id, user_id) VALUES (?, ?)", (room_id, data.other_user_id))
+    conn.commit()
+    conn.close()
+    return {"id": room_id, "type": "direct"}
+
+
+@app.get("/api/chat/rooms/{room_id}/messages")
+async def get_messages(request: Request, room_id: int, since: str = ""):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM chat_members WHERE room_id=? AND user_id=?",
+                        (room_id, user["id"])).fetchone():
+        conn.close()
+        raise HTTPException(status_code=403)
+    if since:
+        rows = conn.execute("""
+            SELECT m.id, m.body, m.created_at, u.id AS sender_id, u.username AS sender_name
+            FROM chat_messages m JOIN users u ON u.id = m.sender_id
+            WHERE m.room_id = ? AND m.created_at > ?
+            ORDER BY m.created_at ASC LIMIT 50
+        """, (room_id, since)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT m.id, m.body, m.created_at, u.id AS sender_id, u.username AS sender_name
+            FROM chat_messages m JOIN users u ON u.id = m.sender_id
+            WHERE m.room_id = ?
+            ORDER BY m.created_at DESC LIMIT 60
+        """, (room_id,)).fetchall()
+        rows = list(reversed(rows))
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/chat/rooms/{room_id}/messages")
+async def send_message(request: Request, room_id: int, data: MessageCreate):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    body = data.body.strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM chat_members WHERE room_id=? AND user_id=?",
+                        (room_id, user["id"])).fetchone():
+        conn.close()
+        raise HTTPException(status_code=403)
+    cur = conn.execute(
+        "INSERT INTO chat_messages (room_id, sender_id, body) VALUES (?, ?, ?)",
+        (room_id, user["id"], body),
+    )
+    msg_id = cur.lastrowid
+    for username in set(re.findall(r'@(\w+)', body)):
+        mentioned = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        if mentioned and mentioned["id"] != user["id"]:
+            _create_notification(conn, mentioned["id"], "mention",
+                f"{user['username']} mentioned you in chat", body[:120], "/chat")
+    conn.commit()
+    row = conn.execute("""
+        SELECT m.id, m.body, m.created_at, u.id AS sender_id, u.username AS sender_name
+        FROM chat_messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?
+    """, (msg_id,)).fetchone()
+    conn.close()
+    return dict(row)

@@ -548,6 +548,15 @@
           <label class="form-label">Due date (optional)</label>
           <input class="form-input" type="date" id="task-due-date">
         </div>
+        <div class="form-group">
+          <label class="form-label">Assignee (optional)</label>
+          <select class="form-select" id="task-assignee">
+            <option value="">— Unassigned —</option>
+            {% for u in all_users %}
+            <option value="{{ u.id }}">{{ u.username }}</option>
+            {% endfor %}
+          </select>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" onclick="closeModal('task-modal')">Cancel</button>
@@ -615,6 +624,15 @@
         <div class="form-group">
           <label class="form-label">Due date (optional)</label>
           <input class="form-input" type="date" id="edit-task-due-date">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Assignee</label>
+          <select class="form-select" id="edit-task-assignee">
+            <option value="">— Unassigned —</option>
+            {% for u in all_users %}
+            <option value="{{ u.id }}">{{ u.username }}</option>
+            {% endfor %}
+          </select>
         </div>
         <!-- PM-19: Dependencies -->
         <div class="form-group">

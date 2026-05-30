@@ -362,6 +362,7 @@ function makeCardHTML(task) {
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
       ${task.ticket_id ? `<span class="ticket-id">${escapeHtml(task.ticket_id)}</span>` : ''}
       ${bugBadge}${blockedBadge}${dueBadge}
+      ${task.assignee_username ? `<span class="assignee-chip">@${escapeHtml(task.assignee_username)}</span>` : ''}
     </div>
   </div>`;
 }
@@ -703,6 +704,9 @@ function initEditTask() {
       const phaseEl = document.getElementById('edit-task-phase');
       if (phaseEl) phaseEl.value = task.phase_id != null ? String(task.phase_id) : '';
 
+      const assigneeEl = document.getElementById('edit-task-assignee');
+      if (assigneeEl) assigneeEl.value = task.assigned_to != null ? String(task.assigned_to) : '';
+
       // PM-17: Load comments
       _loadComments(taskId);
       // PM-19: Load dependencies
@@ -725,11 +729,13 @@ function initEditTask() {
     const due_date    = document.getElementById('edit-task-due-date')?.value || null;
     if (!title) return;
 
-    const phaseVal = document.getElementById('edit-task-phase')?.value;
-    const phase_id = phaseVal ? parseInt(phaseVal) : null;
+    const phaseVal    = document.getElementById('edit-task-phase')?.value;
+    const phase_id    = phaseVal ? parseInt(phaseVal) : null;
+    const assigneeVal = document.getElementById('edit-task-assignee')?.value;
+    const assigned_to = assigneeVal ? parseInt(assigneeVal) : null;
 
     try {
-      const task = await apiUpdateTask(taskId, { title, description, status, priority, type, phase_id, due_date });
+      const task = await apiUpdateTask(taskId, { title, description, status, priority, type, phase_id, due_date, assigned_to });
       closeModal('edit-task-modal');
       applyTaskEdit(taskId, _editOldStatus, _editOldPhaseId, task);
       _editOldStatus  = null;
@@ -947,10 +953,12 @@ function initAddTask(projectId) {
     const phaseVal    = document.getElementById('task-phase')?.value;
     const phase_id    = phaseVal ? parseInt(phaseVal) : null;
     const due_date    = document.getElementById('task-due-date')?.value || null;
+    const assigneeVal = document.getElementById('task-assignee')?.value;
+    const assigned_to = assigneeVal ? parseInt(assigneeVal) : null;
     if (!title) return;
 
     try {
-      const task = await apiCreateTask(projectId, { title, description, status, priority, type, phase_id, due_date });
+      const task = await apiCreateTask(projectId, { title, description, status, priority, type, phase_id, due_date, assigned_to });
       closeModal('task-modal');
       e.target.reset();
       document.getElementById('task-status').value = 'todo';
@@ -1939,4 +1947,238 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   initComments();
   initDependencies();
+  initNotifications();
+  initChat();
 });
+
+// ─────────────────────────────────────────────────
+// PM-7: Notifications
+// ─────────────────────────────────────────────────
+function initNotifications() {
+  const bell     = document.getElementById('notif-bell');
+  const dropdown = document.getElementById('notif-dropdown');
+  const badge    = document.getElementById('notif-badge');
+  const list     = document.getElementById('notif-list');
+  const readAll  = document.getElementById('notif-read-all');
+  if (!bell) return;
+
+  async function fetchCount() {
+    try {
+      const data = await fetch('/notifications/unread-count').then(r => r.json());
+      const n = data.count || 0;
+      badge.textContent = n > 9 ? '9+' : String(n);
+      badge.style.display = n > 0 ? 'flex' : 'none';
+    } catch {}
+  }
+
+  async function fetchAndRender() {
+    try {
+      const notifs = await fetch('/notifications').then(r => r.json());
+      if (!notifs.length) {
+        list.innerHTML = '<div class="notif-empty">No notifications yet</div>';
+        return;
+      }
+      list.innerHTML = notifs.map(n => `
+        <div class="notif-item ${n.is_read ? 'notif-read' : 'notif-unread'}" data-id="${n.id}" data-link="${escapeHtml(n.link || '')}">
+          <div class="notif-item-title">${escapeHtml(n.title)}</div>
+          ${n.body ? `<div class="notif-item-body">${escapeHtml(n.body)}</div>` : ''}
+          <div class="notif-item-time">${_fmtCommentTime(n.created_at)}</div>
+        </div>`).join('');
+    } catch {}
+  }
+
+  bell.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const open = dropdown.style.display !== 'none';
+    dropdown.style.display = open ? 'none' : 'block';
+    if (!open) {
+      await fetchAndRender();
+      fetchCount();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('notif-wrap')?.contains(e.target)) {
+      if (dropdown) dropdown.style.display = 'none';
+    }
+  });
+
+  list?.addEventListener('click', async (e) => {
+    const item = e.target.closest('.notif-item');
+    if (!item) return;
+    const id   = item.dataset.id;
+    const link = item.dataset.link;
+    if (!item.classList.contains('notif-read')) {
+      await fetch(`/notifications/${id}/read`, { method: 'POST' });
+      item.classList.replace('notif-unread', 'notif-read');
+      fetchCount();
+    }
+    if (link) window.location.href = link;
+  });
+
+  readAll?.addEventListener('click', async () => {
+    await fetch('/notifications/read-all', { method: 'POST' });
+    document.querySelectorAll('.notif-item.notif-unread').forEach(el => {
+      el.classList.replace('notif-unread', 'notif-read');
+    });
+    badge.style.display = 'none';
+  });
+
+  fetchCount();
+  setInterval(fetchCount, 15000);
+}
+
+// ─────────────────────────────────────────────────
+// PM-8: Chat
+// ─────────────────────────────────────────────────
+function initChat() {
+  if (!document.getElementById('chat-pane')) return;
+
+  let _activeRoomId = null;
+  let _lastMsgTime  = '';
+  let _pollInterval = null;
+  let _allRooms     = [];
+
+  async function loadRooms() {
+    try {
+      _allRooms = await fetch('/api/chat/rooms').then(r => r.json());
+      renderRoomList();
+    } catch {}
+  }
+
+  function renderRoomList() {
+    const el = document.getElementById('room-list');
+    if (!el) return;
+    const groups = _allRooms.filter(r => r.type === 'group');
+    if (!groups.length) {
+      el.innerHTML = '<div class="chat-empty-rooms">No rooms yet</div>';
+      return;
+    }
+    el.innerHTML = groups.map(r => `
+      <button class="chat-room-btn ${r.id === _activeRoomId ? 'active' : ''}"
+              data-room-id="${r.id}">
+        <span class="chat-room-icon">#</span>
+        <span class="chat-room-name">${escapeHtml(r.name || 'Unnamed')}</span>
+      </button>`).join('');
+  }
+
+  function renderMessages(msgs, append = false) {
+    const el = document.getElementById('chat-messages');
+    if (!el) return;
+    if (!append) el.innerHTML = '';
+    msgs.forEach(m => {
+      const div = document.createElement('div');
+      const isMe = m.sender_name === (window.__currentUser || '');
+      div.className = `chat-msg ${isMe ? 'chat-msg-me' : ''}`;
+      div.innerHTML = `
+        <div class="chat-msg-meta">
+          <span class="chat-msg-author">${escapeHtml(m.sender_name)}</span>
+          <span class="chat-msg-time">${_fmtCommentTime(m.created_at)}</span>
+        </div>
+        <div class="chat-msg-body">${escapeHtml(m.body)}</div>`;
+      el.appendChild(div);
+    });
+    if (msgs.length) {
+      el.scrollTop = el.scrollHeight;
+      _lastMsgTime = msgs[msgs.length - 1].created_at;
+    }
+  }
+
+  async function openRoom(roomId, name, members) {
+    _activeRoomId = roomId;
+    _lastMsgTime  = '';
+    clearInterval(_pollInterval);
+
+    document.getElementById('chat-empty').style.display  = 'none';
+    document.getElementById('chat-pane').style.display   = 'flex';
+    document.getElementById('chat-pane-name').textContent = name || 'Chat';
+    document.getElementById('chat-pane-members').textContent =
+      members ? members.map(m => m.username).join(', ') : '';
+
+    renderRoomList();
+
+    const msgs = await fetch(`/api/chat/rooms/${roomId}/messages`).then(r => r.json());
+    renderMessages(msgs);
+
+    _pollInterval = setInterval(async () => {
+      if (!_activeRoomId) return;
+      try {
+        const url = _lastMsgTime
+          ? `/api/chat/rooms/${_activeRoomId}/messages?since=${encodeURIComponent(_lastMsgTime)}`
+          : `/api/chat/rooms/${_activeRoomId}/messages`;
+        const newMsgs = await fetch(url).then(r => r.json());
+        if (newMsgs.length) renderMessages(newMsgs, true);
+      } catch {}
+    }, 3000);
+  }
+
+  // Room list click (group rooms)
+  document.getElementById('room-list')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.chat-room-btn');
+    if (!btn) return;
+    const room = _allRooms.find(r => r.id === parseInt(btn.dataset.roomId));
+    if (room) openRoom(room.id, room.name, room.members);
+  });
+
+  // DM buttons
+  document.querySelectorAll('.chat-dm-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const uid      = parseInt(btn.dataset.userId);
+      const username = btn.dataset.username;
+      try {
+        const res = await fetch('/api/chat/rooms/direct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ other_user_id: uid }),
+        }).then(r => r.json());
+        await loadRooms();
+        const room = _allRooms.find(r => r.id === res.id) || { id: res.id, members: [] };
+        openRoom(res.id, username, room.members);
+      } catch {}
+    });
+  });
+
+  // Send message
+  async function sendMsg() {
+    if (!_activeRoomId) return;
+    const input = document.getElementById('chat-input');
+    const body  = input.value.trim();
+    if (!body) return;
+    input.value = '';
+    try {
+      const msg = await fetch(`/api/chat/rooms/${_activeRoomId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      }).then(r => r.json());
+      renderMessages([msg], true);
+    } catch {}
+  }
+
+  document.getElementById('chat-send-btn')?.addEventListener('click', sendMsg);
+  document.getElementById('chat-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+  });
+
+  // New group room modal
+  document.getElementById('new-room-btn')?.addEventListener('click', () => openModal('new-room-modal'));
+  document.getElementById('create-room-btn')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-room-name').value.trim();
+    if (!name) return;
+    const member_ids = [...document.querySelectorAll('.room-member-cb:checked')]
+      .map(cb => parseInt(cb.value));
+    try {
+      await fetch('/api/chat/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, member_ids }),
+      });
+      closeModal('new-room-modal');
+      document.getElementById('new-room-name').value = '';
+      document.querySelectorAll('.room-member-cb').forEach(cb => cb.checked = false);
+      await loadRooms();
+    } catch {}
+  });
+
+  loadRooms();
+}

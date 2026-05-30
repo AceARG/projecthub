@@ -24,6 +24,7 @@
     <div class="nav-links">
       <a href="/" class="nav-link {% if request.url.path == '/' or request.url.path.startswith('/projects/') %}active{% endif %}">Projects</a>
       <a href="/insights" class="nav-link {% if request.url.path == '/insights' %}active{% endif %}">Insights</a>
+      <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">Chat</a>
     </div>
 
     <div class="nav-search-wrap" id="nav-search-wrap">
@@ -34,6 +35,19 @@
     </div>
 
     <div class="nav-controls">
+      <div class="notif-wrap" id="notif-wrap">
+        <button class="notif-bell" id="notif-bell" title="Notifications" aria-label="Notifications">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-badge" id="notif-badge"></span>
+        </button>
+        <div class="notif-dropdown" id="notif-dropdown" style="display:none">
+          <div class="notif-header">
+            <span class="notif-title">Notifications</span>
+            <button class="notif-read-all" id="notif-read-all">Mark all read</button>
+          </div>
+          <div class="notif-list" id="notif-list"></div>
+        </div>
+      </div>
       <a href="/settings" class="profile-btn" title="Settings">
         {% if current_user.avatar %}
         <img src="/avatars/{{ current_user.id }}" class="profile-avatar" alt="{{ current_user.username[0] | upper }}">
