@@ -2066,10 +2066,12 @@ function initChat() {
     const el = document.getElementById('chat-messages');
     if (!el) return;
     if (!append) el.innerHTML = '';
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     msgs.forEach(m => {
       const div = document.createElement('div');
       const isMe = m.sender_name === (window.__currentUser || '');
       div.className = `chat-msg ${isMe ? 'chat-msg-me' : ''}`;
+      div.dataset.msgId = m.id;
       div.innerHTML = `
         <div class="chat-msg-meta">
           <span class="chat-msg-author">${escapeHtml(m.sender_name)}</span>
@@ -2077,16 +2079,14 @@ function initChat() {
         </div>
         <div class="chat-msg-body">${escapeHtml(m.body)}</div>`;
       el.appendChild(div);
+      if (msgs.length) _lastMsgTime = m.created_at;
     });
-    if (msgs.length) {
-      el.scrollTop = el.scrollHeight;
-      _lastMsgTime = msgs[msgs.length - 1].created_at;
-    }
+    if (atBottom || !append) el.scrollTop = el.scrollHeight;
   }
 
   async function openRoom(roomId, name, members) {
     _activeRoomId = roomId;
-    _lastMsgTime  = '';
+    _lastMsgTime  = new Date().toISOString().replace('T', ' ').slice(0, 19);
     clearInterval(_pollInterval);
 
     document.getElementById('chat-empty').style.display  = 'none';
@@ -2097,19 +2097,21 @@ function initChat() {
 
     renderRoomList();
 
+    // Load history, then set _lastMsgTime to the latest message
     const msgs = await fetch(`/api/chat/rooms/${roomId}/messages`).then(r => r.json());
     renderMessages(msgs);
+    if (msgs.length) _lastMsgTime = msgs[msgs.length - 1].created_at;
 
+    // Poll every 2 seconds using `since` to fetch only new messages
     _pollInterval = setInterval(async () => {
       if (!_activeRoomId) return;
       try {
-        const url = _lastMsgTime
-          ? `/api/chat/rooms/${_activeRoomId}/messages?since=${encodeURIComponent(_lastMsgTime)}`
-          : `/api/chat/rooms/${_activeRoomId}/messages`;
-        const newMsgs = await fetch(url).then(r => r.json());
+        const newMsgs = await fetch(
+          `/api/chat/rooms/${_activeRoomId}/messages?since=${encodeURIComponent(_lastMsgTime)}`
+        ).then(r => r.json());
         if (newMsgs.length) renderMessages(newMsgs, true);
       } catch {}
-    }, 3000);
+    }, 2000);
   }
 
   // Room list click (group rooms)

@@ -2021,6 +2021,18 @@ async def send_message(request: Request, room_id: int, data: MessageCreate):
         (room_id, user["id"], body),
     )
     msg_id = cur.lastrowid
+    # Notify all room members (except sender) of the new message
+    members = conn.execute(
+        "SELECT user_id FROM chat_members WHERE room_id = ? AND user_id != ?",
+        (room_id, user["id"])
+    ).fetchall()
+    room_name = conn.execute("SELECT name, type FROM chat_rooms WHERE id = ?", (room_id,)).fetchone()
+    notif_title = (f"{user['username']}" if room_name and room_name["type"] == "direct"
+                   else f"{user['username']} in {room_name['name'] or 'chat'}")
+    for m in members:
+        _create_notification(conn, m["user_id"], "message",
+            notif_title, body[:120], "/chat")
+    # Also handle @mentions specifically
     for username in set(re.findall(r'@(\w+)', body)):
         mentioned = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
         if mentioned and mentioned["id"] != user["id"]:
