@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ProjectHub{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script>
+    (function(){
+      var t=localStorage.getItem('ph-theme')||'medieval';
+      var m=localStorage.getItem('ph-mode')||'dark';
+      document.documentElement.setAttribute('data-pending-theme',t+':'+m);
+    })();
+  </script>
+</head>
+<body{% block body_attrs %}{% endblock %}>
+
+  <nav class="navbar">
+    <a href="/" class="nav-brand">
+      <span class="nav-icon">◈</span>
+      <span>ProjectHub</span>
+    </a>
+
+    <div class="nav-links">
+      <a href="/" class="nav-link {% if request.url.path == '/' or request.url.path.startswith('/projects/') %}active{% endif %}">Projects</a>
+      <a href="/insights" class="nav-link {% if request.url.path == '/insights' %}active{% endif %}">Insights</a>
+    </div>
+
+    <div class="nav-controls">
+      <a href="/settings" class="profile-btn" title="Settings">
+        {% if current_user.avatar %}
+        <img src="/avatars/{{ current_user.id }}" class="profile-avatar" alt="{{ current_user.username[0] | upper }}">
+        {% else %}
+        <span class="profile-avatar">{{ current_user.username[0] | upper }}</span>
+        {% endif %}
+      </a>
+    </div>
+  </nav>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

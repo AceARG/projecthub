@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Settings — ProjectHub{% endblock %}
+
+{% block content %}
+<div class="settings-wrap">
+  <h1 class="settings-heading">Settings</h1>
+
+  <!-- Profile -->
+  <div class="settings-card">
+    <h2 class="settings-card-title">Profile</h2>
+    <div class="settings-profile-row">
+      <div class="avatar-upload-wrap" id="avatar-wrap">
+        {% if current_user.avatar %}
+        <img src="/avatars/{{ current_user.id }}" class="avatar-img" id="avatar-preview" alt="">
+        <div class="avatar-initials" id="avatar-initials" style="display:none">{{ current_user.username[0] | upper }}</div>
+        {% else %}
+        <div class="avatar-initials" id="avatar-initials">{{ current_user.username[0] | upper }}</div>
+        <img src="" class="avatar-img" id="avatar-preview" style="display:none" alt="">
+        {% endif %}
+        <label class="avatar-overlay" for="avatar-input" title="Upload photo">
+          <span class="avatar-overlay-icon">📷</span>
+        </label>
+        <input type="file" id="avatar-input" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none">
+      </div>
+      <div class="settings-profile-info">
+        <div class="settings-field">
+          <label class="form-label">Display name</label>
+          <div class="settings-inline-edit" id="settings-name-row">
+            <span class="settings-value" id="settings-name-display">{{ current_user.username }}</span>
+            <input class="form-input settings-name-input" id="settings-name-input" type="text"
+                   value="{{ current_user.username }}" maxlength="32" style="display:none">
+            <button class="pp-link-btn" id="settings-name-edit-btn">Edit</button>
+            <button class="btn btn-primary btn-sm" id="settings-name-save" style="display:none">Save</button>
+            <button class="btn btn-secondary btn-sm" id="settings-name-cancel" style="display:none">Cancel</button>
+          </div>
+        </div>
+        <div class="settings-field">
+          <label class="form-label">Email</label>
+          <span class="settings-value-muted">{{ current_user.email }}</span>
+        </div>
+        <div class="avatar-upload-error auth-error" id="avatar-error" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Appearance -->
+  <div class="settings-card">
+    <h2 class="settings-card-title">Appearance</h2>
+    <div class="settings-row">
+      <span class="settings-row-label">Color theme</span>
+      <div class="theme-swatches">
+        <span class="swatch" data-theme="medieval" style="background:#c8920c" title="Medieval"></span>
+        <span class="swatch" data-theme="midnight" style="background:#58a6ff" title="Midnight"></span>
+        <span class="swatch" data-theme="ocean"    style="background:#0fbfdc" title="Ocean"></span>
+        <span class="swatch" data-theme="forest"   style="background:#4caf50" title="Forest"></span>
+      </div>
+    </div>
+    <div class="settings-row">
+      <span class="settings-row-label">Light / Dark mode</span>
+      <button class="btn-icon mode-toggle">🌙</button>
+    </div>
+  </div>
+
+  <!-- Security -->
+  <div class="settings-card">
+    <h2 class="settings-card-title">Security</h2>
+    <div class="settings-pw-form">
+      <div class="settings-field">
+        <label class="form-label">Current password</label>
+        <input class="form-input" id="s-cur-pw" type="password" autocomplete="current-password">
+      </div>
+      <div class="settings-field">
+        <label class="form-label">New password</label>
+        <input class="form-input" id="s-new-pw" type="password" autocomplete="new-password">
+        <div class="strength-bar-wrap"><div class="strength-bar" id="s-strength-bar"></div></div>
+        <span class="strength-label" id="s-strength-label"></span>
+      </div>
+      <div class="settings-field">
+        <label class="form-label">Confirm new password</label>
+        <input class="form-input" id="s-confirm-pw" type="password" autocomplete="new-password">
+        <span class="match-label" id="s-match-label"></span>
+      </div>
+      <button class="btn btn-primary" id="s-pw-save">Update password</button>
+      <div class="auth-error" id="s-pw-error" style="display:none"></div>
+      <div class="settings-success" id="s-pw-success" style="display:none">Password updated successfully.</div>
+    </div>
+  </div>
+
+  <!-- Sign out -->
+  <div class="settings-card">
+    <h2 class="settings-card-title">Account</h2>
+    <form method="post" action="/logout">
+      <button class="btn btn-danger" type="submit">Sign out</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In — ProjectHub</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script>
+    (function(){
+      var t=localStorage.getItem('ph-theme')||'medieval';
+      var m=localStorage.getItem('ph-mode')||'dark';
+      document.documentElement.setAttribute('data-pending-theme',t+':'+m);
+    })();
+  </script>
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <span class="nav-icon">◈</span>
+        <span class="auth-brand-name">ProjectHub</span>
+      </div>
+      <h2 class="auth-title">Sign in</h2>
+      {% if error %}
+      <div class="auth-error">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/login">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" type="email" name="email" required autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" type="password" name="password" required>
+        </div>
+        <button class="btn btn-primary auth-submit" type="submit">Sign in</button>
+      </form>
+      <p class="auth-switch">No account? <a href="/signup">Sign up</a></p>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

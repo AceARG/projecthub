@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign Up — ProjectHub</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script>
+    (function(){
+      var t=localStorage.getItem('ph-theme')||'medieval';
+      var m=localStorage.getItem('ph-mode')||'dark';
+      document.documentElement.setAttribute('data-pending-theme',t+':'+m);
+    })();
+  </script>
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <span class="nav-icon">◈</span>
+        <span class="auth-brand-name">ProjectHub</span>
+      </div>
+      <h2 class="auth-title">Create account</h2>
+      {% if error %}
+      <div class="auth-error">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/signup" id="signup-form">
+        <div class="form-group">
+          <label class="form-label">Display name</label>
+          <input class="form-input" type="text" name="username" required autofocus maxlength="32">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" type="email" name="email" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" type="password" name="password" id="signup-password" required>
+          <div class="strength-bar-wrap">
+            <div class="strength-bar" id="signup-strength-bar"></div>
+          </div>
+          <span class="strength-label" id="signup-strength-label"></span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirm password</label>
+          <input class="form-input" type="password" name="confirm" id="signup-confirm" required>
+          <span class="match-label" id="signup-match-label"></span>
+        </div>
+        <button class="btn btn-primary auth-submit" type="submit">Create account</button>
+      </form>
+      <p class="auth-switch">Already have an account? <a href="/login">Sign in</a></p>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — ProjectHub{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Projects</h1>
+    <p class="page-subtitle">{{ projects|length }} project{{ 's' if projects|length != 1 else '' }}</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('new-project-modal')">＋ New Project</button>
+</div>
+
+{% if projects %}
+<div class="projects-table-wrap">
+  <table class="projects-table">
+    <thead>
+      <tr>
+        <th class="col-name">Project</th>
+        <th class="col-desc">Description</th>
+        <th class="col-progress">Progress</th>
+        <th class="col-tasks">Tasks</th>
+        <th class="col-status">Status</th>
+        <th class="col-actions"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for project in projects %}
+      {% set total = project.task_count or 0 %}
+      {% set done  = project.done_count  or 0 %}
+      {% set pct   = (done / total * 100)|int if total else 0 %}
+      <tr class="project-row" data-href="/projects/{{ project.id }}">
+        <td class="col-name">
+          <div class="proj-name-cell">
+            <span class="proj-color-bar" style="background:{{ project.color }}"></span>
+            <span class="proj-name">{{ project.name }}</span>
+          </div>
+        </td>
+        <td class="col-desc">
+          <span class="proj-desc-text">{{ project.description or '—' }}</span>
+        </td>
+        <td class="col-progress">
+          <div class="tbl-progress-wrap">
+            <div class="tbl-progress-bar">
+              <div class="tbl-progress-fill" style="width:{{ pct }}%"></div>
+            </div>
+            <span class="tbl-pct">{{ pct }}%</span>
+          </div>
+        </td>
+        <td class="col-tasks">
+          <span class="tbl-count">{{ total }}</span>
+        </td>
+        <td class="col-status">
+          {% if total == 0 %}
+            <span class="proj-badge badge-empty">Empty</span>
+          {% elif pct == 100 %}
+            <span class="proj-badge badge-done">Complete</span>
+          {% else %}
+            <span class="proj-badge badge-active">Active</span>
+          {% endif %}
+        </td>
+        <td class="col-actions">
+          <div class="row-actions">
+            <button class="edit-project-btn btn-icon"
+                    data-project-id="{{ project.id }}"
+                    data-name="{{ project.name }}"
+                    data-description="{{ project.description or '' }}"
+                    data-color="{{ project.color }}"
+                    data-repo="{{ project.repo_path or '' }}"
+                    data-prefix="{{ project.ticket_prefix or '' }}"
+                    title="Edit project">✎</button>
+            <button class="delete-project-btn btn-icon"
+                    data-project-id="{{ project.id }}"
+                    title="Delete project">×</button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-state-icon">📋</div>
+  <h3>No projects yet</h3>
+  <p>Create your first project to get started</p>
+  <button class="btn btn-primary" onclick="openModal('new-project-modal')">＋ New Project</button>
+</div>
+{% endif %}
+
+<!-- New Project Modal -->
+<div class="modal-overlay" id="new-project-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title">New Project</h2>
+      <button class="modal-close" onclick="closeModal('new-project-modal')">×</button>
+    </div>
+    <form action="/projects" method="post">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Project Name</label>
+          <input class="form-input" type="text" name="name" placeholder="My awesome project" required autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description (optional)</label>
+          <textarea class="form-textarea" name="description" placeholder="What's this project about?"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Color</label>
+          <div class="color-picker-group" id="new-color-picker">
+            <span class="color-option selected" data-color="#c8920c" style="background:#c8920c" title="Gold"></span>
+            <span class="color-option" data-color="#58a6ff" style="background:#58a6ff" title="Blue"></span>
+            <span class="color-option" data-color="#bc8cff" style="background:#bc8cff" title="Purple"></span>
+            <span class="color-option" data-color="#3fb950" style="background:#3fb950" title="Green"></span>
+            <span class="color-option" data-color="#f85149" style="background:#f85149" title="Red"></span>
+            <span class="color-option" data-color="#ffa657" style="background:#ffa657" title="Orange"></span>
+          </div>
+          <input type="hidden" name="color" id="selected-color" value="#c8920c">
+        </div>
+        <div style="display:flex;gap:12px;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Ticket Prefix (optional)</label>
+            <input class="form-input" type="text" name="ticket_prefix" placeholder="e.g. NCF" maxlength="6" style="text-transform:uppercase;">
+            <span class="form-hint">Auto-generated from name if left blank</span>
+          </div>
+          <div class="form-group" style="flex:2;">
+            <label class="form-label">Repo Path (optional)</label>
+            <input class="form-input" type="text" name="repo_path" placeholder="https://github.com/user/repo.git">
+            <span class="form-hint">GitHub URL or local path — used by the CLI to auto-detect this project</span>
+          </div>
+        </div>
+        <div class="cli-setup-box">
+          <div class="csb-header">
+            <span class="csb-icon">&gt;_</span>
+            <span class="csb-title">CLI Quick-Start</span>
+          </div>
+          <div class="csb-body">
+            <p class="csb-group-label">One-time MCP registration &mdash; place <code>projecthub_mcp.py</code> anywhere stable</p>
+            <div class="csb-row">
+              <span class="csb-prompt">$</span>
+              <span class="csb-text">claude mcp add projecthub python "/path/to/projecthub_mcp.py"</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <div class="csb-row csb-row-note">
+              <span class="csb-note">If your server is not at http://localhost:8000, also set:</span>
+            </div>
+            <div class="csb-row">
+              <span class="csb-prompt">$</span>
+              <span class="csb-text">claude mcp add projecthub python "/path/to/projecthub_mcp.py" --env PROJECTHUB_URL=http://localhost:8000</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <p class="csb-group-label" style="margin-top:12px;">Start of every session &mdash; run inside your repo</p>
+            <div class="csb-row">
+              <span class="csb-prompt">&gt;</span>
+              <span class="csb-text">find_project_by_repo(".")</span>
+              <span class="csb-desc">auto-detect &amp; link this project</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <div class="csb-row">
+              <span class="csb-prompt">&gt;</span>
+              <span class="csb-text">get_active_phase_tasks(id)</span>
+              <span class="csb-desc">current sprint tasks</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <div class="csb-row">
+              <span class="csb-prompt">&gt;</span>
+              <span class="csb-text">get_project_context(id)</span>
+              <span class="csb-desc">full project summary</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <div class="csb-row">
+              <span class="csb-prompt">&gt;</span>
+              <span class="csb-text">list_tasks(id, phase_id=X)</span>
+              <span class="csb-desc">filter tickets by phase</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('new-project-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Project</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Project Modal -->
+<div class="modal-overlay" id="edit-project-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title">Edit Project</h2>
+      <button class="modal-close" onclick="closeModal('edit-project-modal')">×</button>
+    </div>
+    <form id="edit-project-form">
+      <input type="hidden" id="edit-project-id">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Project Name</label>
+          <input class="form-input" type="text" id="edit-project-name" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description (optional)</label>
+          <textarea class="form-textarea" id="edit-project-description"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Color</label>
+          <div class="color-picker-group" id="edit-color-picker">
+            <span class="color-option" data-color="#c8920c" style="background:#c8920c" title="Gold"></span>
+            <span class="color-option" data-color="#58a6ff" style="background:#58a6ff" title="Blue"></span>
+            <span class="color-option" data-color="#bc8cff" style="background:#bc8cff" title="Purple"></span>
+            <span class="color-option" data-color="#3fb950" style="background:#3fb950" title="Green"></span>
+            <span class="color-option" data-color="#f85149" style="background:#f85149" title="Red"></span>
+            <span class="color-option" data-color="#ffa657" style="background:#ffa657" title="Orange"></span>
+          </div>
+          <input type="hidden" id="edit-project-color" value="">
+        </div>
+        <div style="display:flex;gap:12px;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Ticket Prefix</label>
+            <input class="form-input" type="text" id="edit-project-prefix" maxlength="6" style="text-transform:uppercase;">
+          </div>
+          <div class="form-group" style="flex:2;">
+            <label class="form-label">Repo Path (optional)</label>
+            <input class="form-input" type="text" id="edit-project-repo" placeholder="https://github.com/user/repo.git">
+            <span class="form-hint">GitHub URL or local path — used by the CLI to auto-detect this project</span>
+          </div>
+        </div>
+        <div class="cli-setup-box">
+          <div class="csb-header">
+            <span class="csb-icon">&gt;_</span>
+            <span class="csb-title">CLI Quick-Start</span>
+          </div>
+          <div class="csb-body">
+            <p class="csb-group-label">One-time MCP registration &mdash; place <code>projecthub_mcp.py</code> anywhere stable</p>
+            <div class="csb-row">
+              <span class="csb-prompt">$</span>
+              <span class="csb-text">claude mcp add projecthub python "/path/to/projecthub_mcp.py"</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <div class="csb-row csb-row-note">
+              <span class="csb-note">If your server is not at http://localhost:8000, also set:</span>
+            </div>
+            <div class="csb-row">
+              <span class="csb-prompt">$</span>
+              <span class="csb-text">claude mcp add projecthub python "/path/to/projecthub_mcp.py" --env PROJECTHUB_URL=http://localhost:8000</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <p class="csb-group-label" style="margin-top:12px;">Start of every session &mdash; run inside your repo</p>
+            <div class="csb-row">
+              <span class="csb-prompt">&gt;</span>
+              <span class="csb-text">find_project_by_repo(".")</span>
+              <span class="csb-desc">auto-detect &amp; link this project</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <div class="csb-row">
+              <span class="csb-prompt">&gt;</span>
+              <span class="csb-text">get_active_phase_tasks(id)</span>
+              <span class="csb-desc">current sprint tasks</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <div class="csb-row">
+              <span class="csb-prompt">&gt;</span>
+              <span class="csb-text">get_project_context(id)</span>
+              <span class="csb-desc">full project summary</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+            <div class="csb-row">
+              <span class="csb-prompt">&gt;</span>
+              <span class="csb-text">list_tasks(id, phase_id=X)</span>
+              <span class="csb-desc">filter tickets by phase</span>
+              <button type="button" class="csb-copy" onclick="csbCopy(this)" title="Copy">⧉</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('edit-project-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function csbCopy(btn) {
+  const text = btn.closest('.csb-row').querySelector('.csb-text').textContent.trim();
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓';
+    btn.classList.add('csb-copied');
+    setTimeout(() => { btn.textContent = '⧉'; btn.classList.remove('csb-copied'); }, 1800);
+  });
+}
+</script>
+{% endblock %}

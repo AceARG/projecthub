@@ -1,0 +1,616 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — ProjectHub{% endblock %}
+{% block body_attrs %} data-project-id="{{ project.id }}"{% endblock %}
+
+{% block content %}
+<div class="project-header">
+  <a href="/" class="back-link">← Dashboard</a>
+  <span class="project-color-badge" style="background:{{ project.color }}"></span>
+  <h1 class="project-header-title">{{ project.name }}</h1>
+  {% if project.description %}
+  <span class="project-header-desc">{{ project.description }}</span>
+  {% endif %}
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab-btn active" data-tab="phases">Phases
+    {% if phases %}<span class="tab-badge">{{ phases|length }}</span>{% endif %}
+  </button>
+<button class="tab-btn" data-tab="backlog">Backlog
+    {% if tasks %}<span class="tab-badge">{{ tasks|length }}</span>{% endif %}
+  </button>
+  <button class="tab-btn" data-tab="kanban">Kanban Board</button>
+  <button class="tab-btn" data-tab="stats">Stats</button>
+</div>
+
+<!-- ── Kanban ── -->
+<div class="tab-content" id="tab-kanban">
+  {% if active_phase %}
+  <div class="kanban-phase-banner">
+    <span class="kpb-dot"></span>
+    <span class="kpb-label">Active phase: <strong>{{ active_phase.name }}</strong></span>
+    <span class="kpb-sub">Showing only tasks assigned to this phase</span>
+  </div>
+  {% endif %}
+  <div class="kanban-board" id="kanban-board">
+    {% for status, label, dot_class in [('todo','Todo','todo'),('in-progress','In Progress','in-progress'),('testing','Testing','testing'),('done','Done','done')] %}
+    <div class="kanban-column" data-status="{{ status }}">
+      <div class="kanban-column-header">
+        <div class="column-title-group">
+          <span class="column-dot {{ dot_class }}"></span>
+          <span class="column-title">{{ label }}</span>
+        </div>
+        <span class="column-count">{{ kanban[status]|length }}</span>
+      </div>
+      <div class="cards-container">
+        {% for task in kanban[status] %}
+        <div class="task-card" data-task-id="{{ task.id }}" data-status="{{ task.status }}" data-type="{{ task.type or 'task' }}" draggable="true">
+          <div class="task-card-header">
+            <span class="priority-dot {{ task.priority }}"></span>
+            <h4 class="task-title">{{ task.title }}</h4>
+            <div class="task-card-actions">
+              <button class="btn-icon task-edit-btn" data-task-id="{{ task.id }}" title="Edit">✎</button>
+              <button class="btn-icon task-delete-btn" data-task-id="{{ task.id }}" title="Delete">×</button>
+            </div>
+          </div>
+          {% if task.description %}
+          <p class="task-desc">{{ task.description }}</p>
+          {% endif %}
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <span class="ticket-id">{{ project.ticket_prefix }}-{{ task.ticket_num }}</span>
+            {% if task.type == 'bug' %}<span class="type-badge type-bug">🐛 Bug</span>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <button class="add-card-btn" data-status="{{ status }}">＋ Add task</button>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ── Backlog ── -->
+<div class="tab-content" id="tab-backlog">
+  <div class="backlog-header">
+    <h3 class="backlog-count">{{ tasks|length }} task{{ 's' if tasks|length != 1 else '' }}</h3>
+    <button class="btn btn-secondary" id="add-backlog-task-btn">＋ Add Task</button>
+  </div>
+
+  {% if not tasks %}
+  <div class="empty-state" style="padding:60px 24px;">
+    <div class="empty-state-icon">📋</div>
+    <h3>No tasks yet</h3>
+    <p>Add tasks to get started</p>
+  </div>
+  {% else %}
+
+  {% set status_cls = {'backlog': 's-backlog', 'todo': 's-todo', 'in-progress': 's-inprog', 'testing': 's-testing', 'done': 's-done'} %}
+
+  <div class="backlog-sections-wrap">
+
+  {% for ph in phases %}
+  {% set ph_tasks = phase_task_map.get(ph.id, []) %}
+  <div class="backlog-section" data-phase-id="{{ ph.id }}">
+    <div class="backlog-section-header">
+      <div class="backlog-section-label">
+        <span class="bl-collapse-icon">&#9660;</span>
+        <span class="section-dot ps-dot-{{ ph.status }}"></span>
+        <span>{{ ph.name }}</span>
+        <span class="phase-badge ps-{{ ph.status }}" style="font-size:10px;padding:2px 7px;">{{ ph.status }}</span>
+      </div>
+      <span class="section-count">{{ ph_tasks|length }}</span>
+    </div>
+    <div class="backlog-list" id="bl-phase-{{ ph.id }}">
+      {% for task in ph_tasks %}
+      <div class="backlog-item" data-task-id="{{ task.id }}" data-status="{{ task.status }}" data-type="{{ task.type or 'task' }}">
+        <span class="priority-dot {{ task.priority }}"></span>
+        <span class="ticket-id">{{ project.ticket_prefix }}-{{ task.ticket_num }}</span>
+        {% if task.type == 'bug' %}<span class="type-badge type-bug">🐛 Bug</span>{% endif %}
+        <div class="backlog-item-info">
+          <div class="backlog-item-title">{{ task.title }}</div>
+          {% if task.description %}<div class="backlog-item-desc">{{ task.description }}</div>{% endif %}
+        </div>
+        <select class="bl-status-select {{ status_cls.get(task.status, 's-backlog') }}" data-task-id="{{ task.id }}">
+          <option value="backlog"{% if task.status == 'backlog' %} selected{% endif %}>Backlog</option>
+          <option value="todo"{% if task.status == 'todo' %} selected{% endif %}>Todo</option>
+          <option value="in-progress"{% if task.status == 'in-progress' %} selected{% endif %}>In Progress</option>
+          <option value="testing"{% if task.status == 'testing' %} selected{% endif %}>Testing</option>
+          <option value="done"{% if task.status == 'done' %} selected{% endif %}>Done</option>
+        </select>
+        <span class="priority-badge {{ task.priority }}">{{ task.priority }}</span>
+        <button class="btn-icon task-edit-btn" data-task-id="{{ task.id }}" title="Edit">✎</button>
+        <button class="btn-icon task-delete-btn" data-task-id="{{ task.id }}" title="Delete">×</button>
+      </div>
+      {% endfor %}
+      {% if not ph_tasks %}<div class="backlog-empty-sub">No tasks in this phase yet</div>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="backlog-section" data-phase-id="">
+    <div class="backlog-section-header">
+      <div class="backlog-section-label">
+        <span class="bl-collapse-icon">&#9660;</span>
+        <span class="section-dot inactive-dot"></span>
+        <span>Unassigned</span>
+      </div>
+      <span class="section-count">{{ unassigned_tasks|length }}</span>
+    </div>
+    <div class="backlog-list" id="bl-unassigned">
+      {% for task in unassigned_tasks %}
+      <div class="backlog-item" data-task-id="{{ task.id }}" data-status="{{ task.status }}" data-type="{{ task.type or 'task' }}">
+        <span class="priority-dot {{ task.priority }}"></span>
+        <span class="ticket-id">{{ project.ticket_prefix }}-{{ task.ticket_num }}</span>
+        {% if task.type == 'bug' %}<span class="type-badge type-bug">🐛 Bug</span>{% endif %}
+        <div class="backlog-item-info">
+          <div class="backlog-item-title">{{ task.title }}</div>
+          {% if task.description %}<div class="backlog-item-desc">{{ task.description }}</div>{% endif %}
+        </div>
+        <select class="bl-status-select {{ status_cls.get(task.status, 's-backlog') }}" data-task-id="{{ task.id }}">
+          <option value="backlog"{% if task.status == 'backlog' %} selected{% endif %}>Backlog</option>
+          <option value="todo"{% if task.status == 'todo' %} selected{% endif %}>Todo</option>
+          <option value="in-progress"{% if task.status == 'in-progress' %} selected{% endif %}>In Progress</option>
+          <option value="testing"{% if task.status == 'testing' %} selected{% endif %}>Testing</option>
+          <option value="done"{% if task.status == 'done' %} selected{% endif %}>Done</option>
+        </select>
+        <span class="priority-badge {{ task.priority }}">{{ task.priority }}</span>
+        <button class="btn-icon task-edit-btn" data-task-id="{{ task.id }}" title="Edit">✎</button>
+        <button class="btn-icon task-delete-btn" data-task-id="{{ task.id }}" title="Delete">×</button>
+      </div>
+      {% endfor %}
+      {% if not unassigned_tasks %}<div class="backlog-empty-sub" id="bl-unassigned-empty">No unassigned tasks</div>{% endif %}
+    </div>
+  </div>
+
+  </div><!-- end .backlog-sections-wrap -->
+  {% endif %}
+</div>
+
+<!-- ── Phases ── -->
+<div class="tab-content active" id="tab-phases">
+  <div class="phase-tab-header">
+    <div>
+      <h3 class="phase-tab-title">Phases</h3>
+      <p class="phase-tab-sub">Organise tasks into phases to track progress across sprints or milestones</p>
+    </div>
+    <button class="btn btn-primary" id="new-phase-btn">＋ New Phase</button>
+  </div>
+
+  {% if not phases %}
+  <div class="empty-state" id="phases-empty-state" style="padding:60px 24px;">
+    <div class="empty-state-icon">🗂️</div>
+    <h3>No phases yet</h3>
+    <p>Create phases to group tasks into sprints or milestones</p>
+    <button class="btn btn-primary" onclick="document.getElementById('new-phase-btn').click()">＋ Create First Phase</button>
+  </div>
+  {% else %}
+
+  <!-- Phases overview table -->
+  <div class="phases-table-wrap" id="phases-table-wrap">
+    <table class="phases-table" id="phases-table">
+      <thead>
+        <tr>
+          <th>Phase</th>
+          <th>Status</th>
+          <th class="ph-num">Tasks</th>
+          <th style="width:200px;">Completion</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="phases-tbody">
+        {% for ph in phases %}
+        <tr class="phase-row" data-phase-id="{{ ph.id }}">
+          <td>
+            <div class="phase-name-cell">
+              <span class="phase-status-dot ps-dot-{{ ph.status }}"></span>
+              <span class="phase-row-name">{{ ph.name }}</span>
+              {% if ph.description %}<span class="phase-row-desc">{{ ph.description }}</span>{% endif %}
+            </div>
+          </td>
+          <td><span class="phase-badge ps-{{ ph.status }}">{{ ph.status }}</span></td>
+          <td class="ph-num">{{ ph.task_count }}</td>
+          <td>
+            <div class="tbl-progress-wrap">
+              <div class="tbl-progress-bar">
+                <div class="tbl-progress-fill" style="width:{{ ph.completion_pct }}%"></div>
+              </div>
+              <span class="tbl-pct">{{ ph.completion_pct }}%</span>
+            </div>
+          </td>
+          <td>
+            <div class="row-actions">
+              <button class="btn-icon phase-edit-btn"
+                      data-phase-id="{{ ph.id }}"
+                      data-name="{{ ph.name }}"
+                      data-description="{{ ph.description or '' }}"
+                      data-status="{{ ph.status }}"
+                      title="Edit phase">✎</button>
+              <button class="btn-icon phase-delete-btn"
+                      data-phase-id="{{ ph.id }}"
+                      title="Delete phase">×</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Phase planning board -->
+  <div class="phase-planning-label">Task Assignment</div>
+  <div class="phase-board" id="phase-board">
+
+    <!-- Unassigned column -->
+    <div class="phase-col" data-phase-id="" id="phase-col-container-unassigned">
+      <div class="phase-col-header">
+        <div class="phase-col-title-group">
+          <span class="phase-col-dot unassigned-dot"></span>
+          <span class="phase-col-title">Unassigned</span>
+        </div>
+        <span class="phase-col-count" id="phase-count-unassigned">{{ unassigned_tasks|length }}</span>
+      </div>
+      <div class="phase-cards" id="phase-col-unassigned">
+        {% for task in unassigned_tasks %}
+        <div class="phase-task-card" data-task-id="{{ task.id }}" data-phase-id="" draggable="true">
+          <div class="phase-task-header">
+            <span class="priority-dot {{ task.priority }}"></span>
+            <span class="phase-task-title">{{ task.title }}</span>
+          </div>
+          <span class="status-badge sb-{{ task.status }}">
+            {% if task.status == 'in-progress' %}In Progress
+            {% elif task.status == 'todo' %}Todo
+            {% elif task.status == 'testing' %}Testing
+            {% elif task.status == 'done' %}Done
+            {% else %}Backlog{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+        {% if not unassigned_tasks %}
+        <div class="phase-col-empty">Drop tasks here to unassign</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Per-phase columns -->
+    {% for ph in phases %}
+    {% set ph_tasks = phase_task_map.get(ph.id, []) %}
+    <div class="phase-col" data-phase-id="{{ ph.id }}" id="phase-col-container-{{ ph.id }}">
+      <div class="phase-col-header">
+        <div class="phase-col-title-group">
+          <span class="phase-col-dot ps-dot-{{ ph.status }}"></span>
+          <span class="phase-col-title">{{ ph.name }}</span>
+        </div>
+        <span class="phase-col-count" id="phase-count-{{ ph.id }}">{{ ph_tasks|length }}</span>
+      </div>
+      <div class="phase-cards" id="phase-col-{{ ph.id }}">
+        {% for task in ph_tasks %}
+        <div class="phase-task-card" data-task-id="{{ task.id }}" data-phase-id="{{ ph.id }}" draggable="true">
+          <div class="phase-task-header">
+            <span class="priority-dot {{ task.priority }}"></span>
+            <span class="phase-task-title">{{ task.title }}</span>
+          </div>
+          <span class="status-badge sb-{{ task.status }}">
+            {% if task.status == 'in-progress' %}In Progress
+            {% elif task.status == 'todo' %}Todo
+            {% elif task.status == 'testing' %}Testing
+            {% elif task.status == 'done' %}Done
+            {% else %}Backlog{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+        {% if not ph_tasks %}
+        <div class="phase-col-empty">Drop tasks here</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Stats ── -->
+<div class="tab-content" id="tab-stats">
+  {% if stats.total == 0 %}
+  <div class="empty-state" style="padding:60px 24px;">
+    <div class="empty-state-icon">📊</div>
+    <h3>No data yet</h3>
+    <p>Add tasks to see project statistics</p>
+  </div>
+  {% else %}
+
+  <div class="stats-cards">
+    <div class="stat-card">
+      <div class="stat-card-value">{{ stats.total }}</div>
+      <div class="stat-card-label">Total Tasks</div>
+    </div>
+    <div class="stat-card sc-done">
+      <div class="stat-card-value">{{ stats.done }}</div>
+      <div class="stat-card-label">Completed</div>
+    </div>
+    <div class="stat-card sc-testing">
+      <div class="stat-card-value">{{ stats.testing }}</div>
+      <div class="stat-card-label">In Testing</div>
+    </div>
+    <div class="stat-card sc-active">
+      <div class="stat-card-value">{{ stats.in_progress }}</div>
+      <div class="stat-card-label">In Progress</div>
+    </div>
+    <div class="stat-card sc-backlog">
+      <div class="stat-card-value">{{ stats.backlog }}</div>
+      <div class="stat-card-label">Backlog</div>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stats-panel" style="align-self:flex-start;">
+      <div class="stats-panel-title">Completion</div>
+      <div class="ring-wrap">
+        <svg class="ring-svg" viewBox="0 0 100 100">
+          <circle class="ring-track" cx="50" cy="50" r="38"/>
+          <circle class="ring-fill" cx="50" cy="50" r="38"
+            stroke-dasharray="{{ (stats.completion_pct * 2.38761)|round(1) }} 238.761"
+            transform="rotate(-90 50 50)"/>
+        </svg>
+        <div class="ring-inner">
+          <div class="ring-pct">{{ stats.completion_pct }}%</div>
+          <div class="ring-sub">done</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-panel" style="flex:2;min-width:0;">
+      <div class="stats-panel-title">Status Breakdown</div>
+      <div class="status-stack-bar">
+        {% if stats.done_pct        > 0 %}<div class="ssb-seg ssb-done"    style="width:{{ stats.done_pct        }}%" title="Done {{ stats.done_pct }}%"></div>{% endif %}
+        {% if stats.testing_pct     > 0 %}<div class="ssb-seg ssb-testing" style="width:{{ stats.testing_pct     }}%" title="Testing {{ stats.testing_pct }}%"></div>{% endif %}
+        {% if stats.in_progress_pct > 0 %}<div class="ssb-seg ssb-inprog"  style="width:{{ stats.in_progress_pct }}%" title="In Progress {{ stats.in_progress_pct }}%"></div>{% endif %}
+        {% if stats.todo_pct        > 0 %}<div class="ssb-seg ssb-todo"    style="width:{{ stats.todo_pct        }}%" title="Todo {{ stats.todo_pct }}%"></div>{% endif %}
+        {% if stats.backlog_pct     > 0 %}<div class="ssb-seg ssb-backlog" style="width:{{ stats.backlog_pct     }}%" title="Backlog {{ stats.backlog_pct }}%"></div>{% endif %}
+      </div>
+      <div class="ssb-legend">
+        <span class="legend-item"><span class="legend-dot" style="background:var(--success)"></span>Done ({{ stats.done }})</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#a855f7"></span>Testing ({{ stats.testing }})</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--warning)"></span>In Progress ({{ stats.in_progress }})</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--accent)"></span>Todo ({{ stats.todo }})</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--text-muted)"></span>Backlog ({{ stats.backlog }})</span>
+      </div>
+
+      <div class="stats-panel-title" style="margin-top:24px;">Priority Distribution</div>
+      <div class="priority-dist">
+        <div class="prio-row">
+          <span class="prio-label">High</span>
+          <div class="prio-track"><div class="prio-bar prio-high"   style="width:{{ stats.high_pct   }}%"></div></div>
+          <span class="prio-count">{{ stats.priority_high }}</span>
+        </div>
+        <div class="prio-row">
+          <span class="prio-label">Medium</span>
+          <div class="prio-track"><div class="prio-bar prio-medium" style="width:{{ stats.medium_pct }}%"></div></div>
+          <span class="prio-count">{{ stats.priority_medium }}</span>
+        </div>
+        <div class="prio-row">
+          <span class="prio-label">Low</span>
+          <div class="prio-track"><div class="prio-bar prio-low"    style="width:{{ stats.low_pct    }}%"></div></div>
+          <span class="prio-count">{{ stats.priority_low }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if stats.insights %}
+  <div class="stats-panel" style="margin-top:16px;">
+    <div class="stats-panel-title">Insights</div>
+    <ul class="insights-list">
+      {% for ins in stats.insights %}
+      <li class="insight-item insight-{{ ins.type }}">
+        <span class="insight-icon">{{ ins.icon }}</span>
+        <span>{{ ins.text }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if stats.phase_summaries %}
+  <div class="stats-panel" style="margin-top:16px;">
+    <div class="stats-panel-title">Phases</div>
+    <div class="phase-summary-list">
+      {% for ph in stats.phase_summaries %}
+      <div class="phase-summary-row">
+        <div class="psr-left">
+          <span class="psr-dot {% if ph.status == 'active' %}psrd-active{% elif ph.status == 'completed' %}psrd-done{% else %}psrd-planned{% endif %}"></span>
+          <span class="psr-name">{{ ph.name }}</span>
+          <span class="psr-badge {% if ph.status == 'active' %}psrb-active{% elif ph.status == 'completed' %}psrb-done{% else %}psrb-planned{% endif %}">{{ ph.status }}</span>
+        </div>
+        <div class="psr-right">
+          <div class="psr-bar-wrap">
+            <div class="psr-bar"><div class="psr-fill" style="width:{{ ph.pct }}%"></div></div>
+          </div>
+          <span class="psr-pct">{{ ph.pct }}%</span>
+          <span class="psr-counts">{{ ph.done }}/{{ ph.total }}</span>
+        </div>
+      </div>
+      {% endfor %}
+      {% if stats.unassigned_count > 0 %}
+      <div class="phase-summary-row psr-unassigned">
+        <div class="psr-left">
+          <span class="psr-dot psrd-planned"></span>
+          <span class="psr-name">Unassigned</span>
+        </div>
+        <div class="psr-right">
+          <span class="psr-counts">{{ stats.unassigned_count }} task{{ 's' if stats.unassigned_count != 1 else '' }}</span>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% endif %}
+</div>
+
+
+<!-- ── Add Task Modal ── -->
+<div class="modal-overlay" id="task-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title">Add Task</h2>
+      <button class="modal-close" onclick="closeModal('task-modal')">×</button>
+    </div>
+    <form id="task-form">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Title</label>
+          <input class="form-input" type="text" id="task-title" placeholder="What needs to be done?" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description (optional)</label>
+          <textarea class="form-textarea" id="task-description" placeholder="Add more context..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Type</label>
+          <div class="type-toggle" id="task-type-toggle">
+            <button type="button" class="type-toggle-btn active" data-type="task">📋 Task</button>
+            <button type="button" class="type-toggle-btn" data-type="bug">🐛 Bug</button>
+          </div>
+          <input type="hidden" id="task-type" value="task">
+        </div>
+        <div style="display:flex;gap:12px;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Status</label>
+            <select class="form-select" id="task-status">
+              <option value="backlog">Backlog</option>
+              <option value="todo" selected>Todo</option>
+              <option value="in-progress">In Progress</option>
+              <option value="testing">Testing</option>
+              <option value="done">Done</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Priority</label>
+            <select class="form-select" id="task-priority">
+              <option value="low">🟢 Low</option>
+              <option value="medium" selected>🟡 Medium</option>
+              <option value="high">🔴 High</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Phase (optional)</label>
+          <select class="form-select phase-select" id="task-phase">
+            <option value="">— No Phase —</option>
+            {% for ph in phases %}
+            <option value="{{ ph.id }}">{{ ph.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('task-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Task</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Edit Task Modal ── -->
+<div class="modal-overlay" id="edit-task-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title">Edit Task</h2>
+      <button class="modal-close" onclick="closeModal('edit-task-modal')">×</button>
+    </div>
+    <form id="edit-task-form">
+      <input type="hidden" id="edit-task-id">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Title</label>
+          <input class="form-input" type="text" id="edit-task-title" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description (optional)</label>
+          <textarea class="form-textarea" id="edit-task-description"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Type</label>
+          <div class="type-toggle" id="edit-task-type-toggle">
+            <button type="button" class="type-toggle-btn active" data-type="task">📋 Task</button>
+            <button type="button" class="type-toggle-btn" data-type="bug">🐛 Bug</button>
+          </div>
+          <input type="hidden" id="edit-task-type" value="task">
+        </div>
+        <div style="display:flex;gap:12px;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Status</label>
+            <select class="form-select" id="edit-task-status">
+              <option value="backlog">Backlog</option>
+              <option value="todo">Todo</option>
+              <option value="in-progress">In Progress</option>
+              <option value="testing">Testing</option>
+              <option value="done">Done</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Priority</label>
+            <select class="form-select" id="edit-task-priority">
+              <option value="low">🟢 Low</option>
+              <option value="medium">🟡 Medium</option>
+              <option value="high">🔴 High</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Phase</label>
+          <select class="form-select phase-select" id="edit-task-phase">
+            <option value="">— No Phase —</option>
+            {% for ph in phases %}
+            <option value="{{ ph.id }}">{{ ph.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('edit-task-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── New / Edit Phase Modal ── -->
+<div class="modal-overlay" id="phase-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title" id="phase-modal-title">New Phase</h2>
+      <button class="modal-close" onclick="closeModal('phase-modal')">×</button>
+    </div>
+    <form id="phase-form">
+      <input type="hidden" id="phase-modal-id">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Phase Name</label>
+          <input class="form-input" type="text" id="phase-modal-name" placeholder="e.g. Sprint 1, MVP, Release" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description (optional)</label>
+          <textarea class="form-textarea" id="phase-modal-description" placeholder="What's the goal of this phase?"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select class="form-select" id="phase-modal-status">
+            <option value="planned">📋 Planned</option>
+            <option value="active">⚡ Active</option>
+            <option value="done">✅ Done</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('phase-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="phase-modal-submit">Create Phase</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

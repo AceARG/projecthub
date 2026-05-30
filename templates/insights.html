@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Insights — ProjectHub{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Global Insights</h1>
+    <p class="page-subtitle">Across all {{ stats.projects }} project{{ 's' if stats.projects != 1 else '' }}</p>
+  </div>
+</div>
+
+{% if stats.tasks == 0 %}
+<div class="empty-state">
+  <div class="empty-state-icon">📊</div>
+  <h3>Nothing to report yet</h3>
+  <p>Create projects and add tasks to see insights here</p>
+  <a href="/" class="btn btn-primary">Go to Projects</a>
+</div>
+{% else %}
+
+<!-- Summary cards -->
+<div class="stats-cards">
+  <div class="stat-card">
+    <div class="stat-card-value">{{ stats.projects }}</div>
+    <div class="stat-card-label">Projects</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-value">{{ stats.tasks }}</div>
+    <div class="stat-card-label">Total Tasks</div>
+  </div>
+  <div class="stat-card sc-done">
+    <div class="stat-card-value">{{ stats.completion_pct }}%</div>
+    <div class="stat-card-label">Overall Done</div>
+  </div>
+  <div class="stat-card sc-active">
+    <div class="stat-card-value">{{ stats.in_progress }}</div>
+    <div class="stat-card-label">In Progress</div>
+  </div>
+</div>
+
+<!-- Charts row -->
+<div class="stats-row">
+
+  <!-- Completion ring -->
+  <div class="stats-panel">
+    <div class="stats-panel-title">Overall Completion</div>
+    <div class="ring-wrap">
+      <svg class="ring-svg" viewBox="0 0 100 100">
+        <circle class="ring-track" cx="50" cy="50" r="38"/>
+        <circle class="ring-fill" cx="50" cy="50" r="38"
+          stroke-dasharray="{{ (stats.completion_pct * 2.38761)|round(1) }} 238.761"
+          transform="rotate(-90 50 50)"/>
+      </svg>
+      <div class="ring-inner">
+        <div class="ring-pct">{{ stats.completion_pct }}%</div>
+        <div class="ring-sub">done</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status + priority -->
+  <div class="stats-panel" style="flex:2;min-width:0;">
+    <div class="stats-panel-title">Task Status — All Projects</div>
+    <div class="status-stack-bar">
+      {% if stats.done_pct    > 0 %}<div class="ssb-seg ssb-done"    style="width:{{ stats.done_pct    }}%" title="Done {{ stats.done_pct }}%"></div>{% endif %}
+      {% if stats.inprog_pct  > 0 %}<div class="ssb-seg ssb-inprog"  style="width:{{ stats.inprog_pct  }}%" title="In Progress {{ stats.inprog_pct }}%"></div>{% endif %}
+      {% if stats.todo_pct    > 0 %}<div class="ssb-seg ssb-todo"    style="width:{{ stats.todo_pct    }}%" title="Todo {{ stats.todo_pct }}%"></div>{% endif %}
+      {% if stats.backlog_pct > 0 %}<div class="ssb-seg ssb-backlog" style="width:{{ stats.backlog_pct }}%" title="Backlog {{ stats.backlog_pct }}%"></div>{% endif %}
+    </div>
+    <div class="ssb-legend">
+      <span class="legend-item"><span class="legend-dot" style="background:var(--success)"></span>Done ({{ stats.done }})</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--warning)"></span>In Progress ({{ stats.in_progress }})</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent)"></span>Todo ({{ stats.todo }})</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--text-muted)"></span>Backlog ({{ stats.backlog }})</span>
+    </div>
+
+    <div class="stats-panel-title" style="margin-top:20px;">Priority Distribution</div>
+    <div class="priority-dist">
+      <div class="prio-row">
+        <span class="prio-label">High</span>
+        <div class="prio-track"><div class="prio-bar prio-high"   style="width:{{ stats.high_pct   }}%"></div></div>
+        <span class="prio-count">{{ stats.high }}</span>
+      </div>
+      <div class="prio-row">
+        <span class="prio-label">Medium</span>
+        <div class="prio-track"><div class="prio-bar prio-medium" style="width:{{ stats.medium_pct }}%"></div></div>
+        <span class="prio-count">{{ stats.medium }}</span>
+      </div>
+      <div class="prio-row">
+        <span class="prio-label">Low</span>
+        <div class="prio-track"><div class="prio-bar prio-low"    style="width:{{ stats.low_pct    }}%"></div></div>
+        <span class="prio-count">{{ stats.low }}</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Per-project breakdown -->
+<div class="stats-panel" style="margin-top:16px;padding:0;overflow:hidden;">
+  <div style="padding:16px 20px 12px;" class="stats-panel-title">Project Breakdown</div>
+  <table class="insights-table">
+    <thead>
+      <tr>
+        <th>Project</th>
+        <th class="ins-num">Total</th>
+        <th class="ins-num">Done</th>
+        <th class="ins-num">In Progress</th>
+        <th class="ins-num">Todo</th>
+        <th class="ins-num">Backlog</th>
+        <th style="width:200px;">Completion</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in project_rows %}
+      <tr class="ins-row" data-href="/projects/{{ p.id }}">
+        <td>
+          <div class="proj-name-cell">
+            <span class="proj-color-bar" style="background:{{ p.color }}"></span>
+            <span style="font-weight:600;">{{ p.name }}</span>
+          </div>
+        </td>
+        <td class="ins-num">{{ p.task_count }}</td>
+        <td class="ins-num" style="color:var(--success)">{{ p.done_count or 0 }}</td>
+        <td class="ins-num" style="color:var(--warning)">{{ p.inprog_count or 0 }}</td>
+        <td class="ins-num" style="color:var(--accent)">{{ p.todo_count or 0 }}</td>
+        <td class="ins-num" style="color:var(--text-muted)">{{ p.backlog_count or 0 }}</td>
+        <td>
+          <div class="tbl-progress-wrap">
+            <div class="tbl-progress-bar">
+              <div class="tbl-progress-fill" style="width:{{ p.completion_pct }}%"></div>
+            </div>
+            <span class="tbl-pct">{{ p.completion_pct }}%</span>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Key takeaways -->
+{% if insights %}
+<div class="stats-panel" style="margin-top:16px;">
+  <div class="stats-panel-title">Key Takeaways</div>
+  <ul class="insights-list">
+    {% for ins in insights %}
+    <li class="insight-item insight-{{ ins.type }}">
+      <span class="insight-icon">{{ ins.icon }}</span>
+      <span>{{ ins.text }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
