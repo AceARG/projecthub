@@ -313,8 +313,9 @@ function dueCls(iso) {
 
 function makeCardHTML(task) {
   const taskType = task.type || 'task';
-  const bugBadge = taskType === 'bug' ? `<span class="type-badge type-bug">🐛 Bug</span>` : '';
-  const dueBadge = task.due_date
+  const bugBadge     = taskType === 'bug' ? `<span class="type-badge type-bug">🐛 Bug</span>` : '';
+  const blockedBadge = task.is_blocked    ? `<span class="blocked-badge">⛔ Blocked</span>`  : '';
+  const dueBadge     = task.due_date
     ? `<span class="due-chip ${dueCls(task.due_date)}">${fmtDate(task.due_date)}</span>` : '';
   return `<div class="task-card" data-task-id="${task.id}" data-status="${escapeHtml(task.status || '')}" data-type="${taskType}" draggable="true">
     <div class="task-card-header">
@@ -328,24 +329,26 @@ function makeCardHTML(task) {
     ${task.description ? `<p class="task-desc">${escapeHtml(task.description)}</p>` : ''}
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
       ${task.ticket_id ? `<span class="ticket-id">${escapeHtml(task.ticket_id)}</span>` : ''}
-      ${bugBadge}${dueBadge}
+      ${bugBadge}${blockedBadge}${dueBadge}
     </div>
   </div>`;
 }
 
 function makeBacklogItemHTML(task) {
-  const taskType = task.type || 'task';
-  const bugBadge = taskType === 'bug' ? `<span class="type-badge type-bug">🐛 Bug</span>` : '';
-  const dueBadge = task.due_date
+  const taskType     = task.type || 'task';
+  const bugBadge     = taskType === 'bug' ? `<span class="type-badge type-bug">🐛 Bug</span>` : '';
+  const blockedBadge = task.is_blocked    ? `<span class="blocked-badge">⛔ Blocked</span>`  : '';
+  const dueBadge     = task.due_date
     ? `<span class="due-chip ${dueCls(task.due_date)}">${fmtDate(task.due_date)}</span>` : '';
   const selCls = BL_STATUS_CLS[task.status] || 's-backlog';
   const opts = ['backlog','todo','in-progress','testing','done'].map(v =>
     `<option value="${v}"${task.status === v ? ' selected' : ''}>${STATUS_INFO[v]?.label || v}</option>`
   ).join('');
   return `<div class="backlog-item" data-task-id="${task.id}" data-status="${escapeHtml(task.status)}" data-type="${taskType}">
+    <input type="checkbox" class="bulk-check" data-task-id="${task.id}">
     <span class="priority-dot ${escapeHtml(task.priority)}"></span>
     ${task.ticket_id ? `<span class="ticket-id">${escapeHtml(task.ticket_id)}</span>` : ''}
-    ${bugBadge}
+    ${bugBadge}${blockedBadge}
     <div class="backlog-item-info">
       <div class="backlog-item-title">${escapeHtml(task.title)}</div>
       ${task.description ? `<div class="backlog-item-desc">${escapeHtml(task.description)}</div>` : ''}
@@ -667,6 +670,11 @@ function initEditTask() {
 
       const phaseEl = document.getElementById('edit-task-phase');
       if (phaseEl) phaseEl.value = task.phase_id != null ? String(task.phase_id) : '';
+
+      // PM-17: Load comments
+      _loadComments(taskId);
+      // PM-19: Load dependencies
+      _loadDeps(taskId);
 
       openModal('edit-task-modal');
     } catch (err) {
@@ -1509,6 +1517,278 @@ function initSettingsPage() {
 }
 
 // ════════════════════════════════════════════════
+// PM-17: Comments
+// ════════════════════════════════════════════════
+function _fmtCommentTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts.replace(' ', 'T') + 'Z');
+  return d.toLocaleDateString('en', { month: 'short', day: 'numeric' }) + ' ' +
+         d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' });
+}
+
+function _renderComment(c, listEl) {
+  const div = document.createElement('div');
+  div.className = 'comment-item';
+  div.dataset.commentId = c.id;
+  div.innerHTML = `
+    <div class="comment-meta">
+      <span class="comment-author">${escapeHtml(c.username)}</span>
+      <span class="comment-time">${_fmtCommentTime(c.created_at)}</span>
+      <button class="btn-icon comment-delete-btn" data-comment-id="${c.id}" title="Delete">×</button>
+    </div>
+    <div class="comment-body">${escapeHtml(c.content)}</div>`;
+  listEl.appendChild(div);
+}
+
+async function _loadComments(taskId) {
+  const listEl = document.getElementById('edit-comment-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">Loading…</div>';
+  const comments = await fetch(`/tasks/${taskId}/comments`).then(r => r.json()).catch(() => []);
+  listEl.innerHTML = '';
+  if (!comments.length) {
+    listEl.innerHTML = '<div class="comment-empty">No comments yet.</div>';
+  } else {
+    comments.forEach(c => _renderComment(c, listEl));
+  }
+}
+
+function initComments() {
+  document.getElementById('submit-comment-btn')?.addEventListener('click', async () => {
+    const taskId  = document.getElementById('edit-task-id')?.value;
+    const textEl  = document.getElementById('new-comment-text');
+    const content = textEl?.value.trim();
+    if (!taskId || !content) return;
+    const comment = await fetch(`/tasks/${taskId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    }).then(r => r.json()).catch(() => null);
+    if (!comment) return;
+    textEl.value = '';
+    const listEl = document.getElementById('edit-comment-list');
+    const emptyEl = listEl?.querySelector('.comment-empty');
+    if (emptyEl) emptyEl.remove();
+    _renderComment(comment, listEl);
+  });
+
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.comment-delete-btn');
+    if (!btn) return;
+    const commentId = btn.dataset.commentId;
+    await fetch(`/comments/${commentId}`, { method: 'DELETE' });
+    btn.closest('.comment-item')?.remove();
+    const listEl = document.getElementById('edit-comment-list');
+    if (listEl && !listEl.querySelector('.comment-item')) {
+      listEl.innerHTML = '<div class="comment-empty">No comments yet.</div>';
+    }
+  });
+}
+
+// ════════════════════════════════════════════════
+// PM-19: Task dependencies
+// ════════════════════════════════════════════════
+function _renderDepItem(dep, listEl) {
+  const statusCls = dep.status === 'done' ? 'sb-done' : 'sb-todo';
+  const div = document.createElement('div');
+  div.className = 'dep-item';
+  div.dataset.depId = dep.dep_id;
+  div.innerHTML = `
+    <span class="ticket-id">${escapeHtml(dep.ticket_id)}</span>
+    <span class="dep-title">${escapeHtml(dep.title)}</span>
+    <span class="status-badge ${statusCls}" style="font-size:10px;padding:1px 6px;">${dep.status}</span>
+    <button class="btn-icon dep-remove-btn" data-dep-id="${dep.dep_id}" title="Remove">×</button>`;
+  listEl.appendChild(div);
+}
+
+async function _loadDeps(taskId) {
+  const listEl = document.getElementById('edit-dep-list');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  const data = await fetch(`/tasks/${taskId}/dependencies`).then(r => r.json()).catch(() => ({ blockers: [] }));
+  if (!data.blockers.length) {
+    listEl.innerHTML = '<div class="dep-empty">No blockers.</div>';
+  } else {
+    data.blockers.forEach(d => _renderDepItem(d, listEl));
+  }
+}
+
+function initDependencies() {
+  const input   = document.getElementById('dep-search-input');
+  const results = document.getElementById('dep-search-results');
+  if (!input || !results) return;
+
+  let debounce;
+  input.addEventListener('input', () => {
+    clearTimeout(debounce);
+    const q = input.value.trim();
+    if (q.length < 2) { results.classList.remove('open'); return; }
+    debounce = setTimeout(async () => {
+      const data = await fetch(`/search?q=${encodeURIComponent(q)}`).then(r => r.json()).catch(() => ({ results: [] }));
+      const tasks = data.results.filter(r => r.type === 'task');
+      if (!tasks.length) { results.innerHTML = '<div class="sr-empty">No tasks found</div>'; results.classList.add('open'); return; }
+      results.innerHTML = tasks.map(t => `
+        <div class="sr-item dep-result-item" data-task-id="${t.id}" data-ticket="${escapeHtml(t.ticket_id)}" data-title="${escapeHtml(t.title)}" style="cursor:pointer;">
+          <span class="sr-ticket">${escapeHtml(t.ticket_id)}</span>
+          <span class="sr-title">${escapeHtml(t.title)}</span>
+          <span class="sr-meta">${escapeHtml(t.project_name)}</span>
+        </div>`).join('');
+      results.classList.add('open');
+    }, 220);
+  });
+
+  results.addEventListener('click', async (e) => {
+    const item = e.target.closest('.dep-result-item');
+    if (!item) return;
+    const taskId = document.getElementById('edit-task-id')?.value;
+    if (!taskId) return;
+    const dep = await fetch(`/tasks/${taskId}/dependencies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ depends_on: parseInt(item.dataset.taskId) }),
+    }).then(r => r.json()).catch(() => null);
+    if (!dep || !dep.dep_id) return;
+    results.classList.remove('open');
+    input.value = '';
+    const listEl = document.getElementById('edit-dep-list');
+    const emptyEl = listEl?.querySelector('.dep-empty');
+    if (emptyEl) emptyEl.remove();
+    _renderDepItem(dep, listEl);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#dep-search-input') && !e.target.closest('#dep-search-results')) {
+      results.classList.remove('open');
+    }
+  });
+
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.dep-remove-btn');
+    if (!btn) return;
+    const depId = btn.dataset.depId;
+    await fetch(`/task-dependencies/${depId}`, { method: 'DELETE' });
+    btn.closest('.dep-item')?.remove();
+    const listEl = document.getElementById('edit-dep-list');
+    if (listEl && !listEl.querySelector('.dep-item')) {
+      listEl.innerHTML = '<div class="dep-empty">No blockers.</div>';
+    }
+  });
+}
+
+// ════════════════════════════════════════════════
+// PM-18: Bulk actions
+// ════════════════════════════════════════════════
+function initBulkActions(projectId) {
+  let selectMode = false;
+  const bar        = document.getElementById('bulk-action-bar');
+  const countEl    = document.getElementById('bulk-count');
+  const selectBtn  = document.getElementById('bulk-select-btn');
+  const cancelBtn  = document.getElementById('bulk-cancel-btn');
+  const deleteBtn  = document.getElementById('bulk-delete-btn');
+  const statusSel  = document.getElementById('bulk-status-sel');
+  const prioritySel= document.getElementById('bulk-priority-sel');
+  const wrap       = document.querySelector('.backlog-sections-wrap');
+  if (!selectBtn || !wrap) return;
+
+  function getChecked() {
+    return [...document.querySelectorAll('.bulk-check:checked')].map(c => parseInt(c.dataset.taskId));
+  }
+  function updateCount() {
+    const n = getChecked().length;
+    if (countEl) countEl.textContent = `${n} selected`;
+  }
+  function enterSelectMode() {
+    selectMode = true;
+    wrap.classList.add('select-mode');
+    bar.style.display = 'flex';
+    selectBtn.textContent = 'Deselect All';
+  }
+  function exitSelectMode() {
+    selectMode = false;
+    wrap.classList.remove('select-mode');
+    bar.style.display = 'none';
+    document.querySelectorAll('.bulk-check').forEach(c => c.checked = false);
+    selectBtn.textContent = 'Select';
+    if (statusSel)   statusSel.value   = '';
+    if (prioritySel) prioritySel.value = '';
+  }
+
+  selectBtn.addEventListener('click', () => selectMode ? exitSelectMode() : enterSelectMode());
+  cancelBtn?.addEventListener('click', exitSelectMode);
+
+  wrap.addEventListener('change', (e) => {
+    if (e.target.classList.contains('bulk-check')) updateCount();
+  });
+
+  async function bulkAction(action, value) {
+    const ids = getChecked();
+    if (!ids.length) return;
+    if (action === 'delete' && !confirm(`Delete ${ids.length} task(s)?`)) return;
+    await fetch(`/projects/${projectId}/tasks/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_ids: ids, action, value }),
+    });
+    exitSelectMode();
+    location.reload();
+  }
+
+  deleteBtn?.addEventListener('click', () => bulkAction('delete', null));
+
+  statusSel?.addEventListener('change', () => {
+    const v = statusSel.value;
+    if (!v) return;
+    bulkAction('status', v);
+  });
+
+  prioritySel?.addEventListener('change', () => {
+    const v = prioritySel.value;
+    if (!v) return;
+    bulkAction('priority', v);
+  });
+}
+
+// ════════════════════════════════════════════════
+// PM-21: Webhooks
+// ════════════════════════════════════════════════
+function initWebhooks(projectId) {
+  const list      = document.getElementById('webhook-list');
+  const urlInput  = document.getElementById('webhook-url-input');
+  const addBtn    = document.getElementById('webhook-add-btn');
+  if (!addBtn) return;
+
+  addBtn.addEventListener('click', async () => {
+    const url = urlInput?.value.trim();
+    if (!url) return;
+    const wh = await fetch(`/projects/${projectId}/webhooks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    }).then(r => r.json()).catch(() => null);
+    if (!wh) return;
+    urlInput.value = '';
+    document.getElementById('webhook-empty')?.remove();
+    const row = document.createElement('div');
+    row.className = 'webhook-row';
+    row.dataset.whId = wh.id;
+    row.innerHTML = `<span class="webhook-url">${escapeHtml(wh.url)}</span>
+      <button class="btn-icon wh-delete-btn" data-wh-id="${wh.id}" title="Remove">×</button>`;
+    list.appendChild(row);
+  });
+
+  list?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.wh-delete-btn');
+    if (!btn) return;
+    const whId = btn.dataset.whId;
+    await fetch(`/webhooks/${whId}`, { method: 'DELETE' });
+    btn.closest('.webhook-row')?.remove();
+    if (list && !list.querySelector('.webhook-row')) {
+      list.insertAdjacentHTML('afterbegin', '<div class="webhook-empty" id="webhook-empty">No webhooks configured.</div>');
+    }
+  });
+}
+
+// ════════════════════════════════════════════════
 // Search (PM-13)
 // ════════════════════════════════════════════════
 function initSearch() {
@@ -1622,5 +1902,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initBacklogCollapse();
     initPhaseDragDrop();
     initPhases(projectId);
+    initBulkActions(projectId);
+    initWebhooks(projectId);
   }
+  initComments();
+  initDependencies();
 });

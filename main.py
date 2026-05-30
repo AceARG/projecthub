@@ -11,8 +11,31 @@ import os
 import json
 import re
 from datetime import date, timedelta, datetime
+from collections import defaultdict
+import time as _time
+import asyncio
+import urllib.request
 
 app = FastAPI(title="ProjectHub")
+
+# ── PM-20: Rate limiting ──
+_rate_store: dict = defaultdict(list)
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    ip = request.client.host if request.client else "unknown"
+    now = _time.time()
+    limit = 60 if request.method in ("POST", "PUT", "DELETE", "PATCH") else 200
+    _rate_store[ip] = [t for t in _rate_store[ip] if now - t < 60.0]
+    if len(_rate_store[ip]) >= limit:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"detail": "Rate limit exceeded. Please slow down."},
+            status_code=429,
+            headers={"Retry-After": "60"},
+        )
+    _rate_store[ip].append(now)
+    return await call_next(request)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -254,6 +277,42 @@ def init_db():
     except Exception:
         pass
 
+    # PM-17: Task comments
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS task_comments (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id    INTEGER NOT NULL,
+            user_id    INTEGER NOT NULL,
+            content    TEXT    NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id)  ON DELETE CASCADE
+        )
+    """)
+    # PM-19: Task dependencies
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS task_dependencies (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id     INTEGER NOT NULL,
+            depends_on  INTEGER NOT NULL,
+            UNIQUE(task_id, depends_on),
+            FOREIGN KEY(task_id)   REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY(depends_on) REFERENCES tasks(id) ON DELETE CASCADE
+        )
+    """)
+    # PM-21: Webhook configurations
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS webhook_configs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            url        TEXT    NOT NULL,
+            events     TEXT    DEFAULT '["task.status_changed"]',
+            active     INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """)
+
     # Indexes for high-volume queries
     indexes = [
         "CREATE INDEX IF NOT EXISTS idx_tasks_project    ON tasks(project_id)",
@@ -268,6 +327,10 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_messages_plan    ON plan_messages(plan_id, step)",
         "CREATE INDEX IF NOT EXISTS idx_users_email      ON users(email)",
         "CREATE INDEX IF NOT EXISTS idx_tasks_due_date   ON tasks(due_date)",
+        "CREATE INDEX IF NOT EXISTS idx_comments_task    ON task_comments(task_id)",
+        "CREATE INDEX IF NOT EXISTS idx_deps_task        ON task_dependencies(task_id)",
+        "CREATE INDEX IF NOT EXISTS idx_deps_on          ON task_dependencies(depends_on)",
+        "CREATE INDEX IF NOT EXISTS idx_webhooks_proj    ON webhook_configs(project_id)",
     ]
     for idx in indexes:
         conn.execute(idx)
@@ -398,7 +461,24 @@ async def project_view(request: Request, project_id: int):
         "SELECT id, name, description, status, created_at FROM plans WHERE project_id = ? ORDER BY created_at DESC",
         (project_id,)
     ).fetchall()
+
+    # PM-19: blocked task IDs (have at least one incomplete blocker)
+    blocked_ids_raw = conn.execute("""
+        SELECT DISTINCT d.task_id
+        FROM task_dependencies d
+        JOIN tasks t ON t.id = d.depends_on
+        WHERE t.project_id = ? AND t.status != 'done'
+    """, (project_id,)).fetchall()
+    blocked_ids = {r[0] for r in blocked_ids_raw}
+
+    # PM-21: webhooks for this project
+    webhooks_raw = conn.execute(
+        "SELECT * FROM webhook_configs WHERE project_id = ? ORDER BY created_at",
+        (project_id,),
+    ).fetchall()
+
     conn.close()
+    webhooks = [dict(w) for w in webhooks_raw]
 
     plan_items = []
     for p in plans_raw_db:
@@ -533,6 +613,8 @@ async def project_view(request: Request, project_id: int):
         "current_user": user,
         "today": today_str,
         "soon": soon_str,
+        "blocked_ids": blocked_ids,
+        "webhooks": webhooks,
     })
 
 
@@ -615,7 +697,7 @@ class TaskUpdate(BaseModel):
 
 
 def _task_with_ticket(conn, task_id: int) -> dict:
-    """Fetch a task row and attach ticket_id = prefix-num."""
+    """Fetch a task row and attach ticket_id and is_blocked."""
     row = conn.execute("""
         SELECT t.*, p.ticket_prefix
         FROM tasks t
@@ -626,6 +708,12 @@ def _task_with_ticket(conn, task_id: int) -> dict:
         return {}
     d = dict(row)
     d['ticket_id'] = f"{d.get('ticket_prefix', '')}-{d.get('ticket_num', 0)}"
+    blocked = conn.execute("""
+        SELECT COUNT(*) FROM task_dependencies d
+        JOIN tasks t ON t.id = d.depends_on
+        WHERE d.task_id = ? AND t.status != 'done'
+    """, (task_id,)).fetchone()[0]
+    d['is_blocked'] = blocked > 0
     return d
 
 
@@ -649,28 +737,64 @@ async def create_task(project_id: int, task: TaskCreate):
     return result
 
 
+async def _fire_webhooks(project_id: int, task: dict, old_status: str):
+    """Fire project webhooks for task status changes (PM-21, non-blocking)."""
+    conn = get_db()
+    hooks = conn.execute(
+        "SELECT url, events FROM webhook_configs WHERE project_id = ? AND active = 1",
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    payload = json.dumps({
+        "event": "task.status_changed",
+        "task_id": task.get("id"),
+        "task_title": task.get("title"),
+        "ticket_id": task.get("ticket_id"),
+        "project_id": project_id,
+        "old_status": old_status,
+        "new_status": task.get("status"),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }).encode()
+    for hook in hooks:
+        events = json.loads(hook["events"] or "[]")
+        if "task.status_changed" not in events:
+            continue
+        try:
+            req = urllib.request.Request(
+                hook["url"],
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "ProjectHub/1.0"},
+                method="POST",
+            )
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda r=req: urllib.request.urlopen(r, timeout=5))
+        except Exception:
+            pass
+
+
 @app.put("/tasks/{task_id}")
 async def update_task(task_id: int, task: TaskUpdate):
-    # Use __fields_set__ so phase_id=null (unassign) is handled correctly
     updates = {}
     for k, v in task.dict().items():
         if v is not None:
             updates[k] = v
         elif k in task.__fields_set__:
-            updates[k] = None  # Explicitly set to NULL (e.g. phase_id: null)
+            updates[k] = None
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     conn = get_db()
-    conn.execute(
-        f"UPDATE tasks SET {set_clause} WHERE id = ?",
-        (*updates.values(), task_id),
-    )
+    old_row = conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    old_status = old_row["status"] if old_row else None
+    conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", (*updates.values(), task_id))
     conn.commit()
     result = _task_with_ticket(conn, task_id)
     conn.close()
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
+    new_status = updates.get("status")
+    if new_status and old_status and new_status != old_status:
+        asyncio.create_task(_fire_webhooks(result.get("project_id"), result, old_status))
     return result
 
 
@@ -688,6 +812,181 @@ async def get_task(task_id: int):
 async def delete_task(task_id: int):
     conn = get_db()
     conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+# ── PM-18: Bulk task actions ──────────────────
+
+class BulkTaskAction(BaseModel):
+    task_ids: List[int]
+    action: str   # "status" | "priority" | "delete"
+    value: Optional[str] = None
+
+@app.post("/projects/{project_id}/tasks/bulk")
+async def bulk_task_action(project_id: int, data: BulkTaskAction):
+    if not data.task_ids:
+        return {"ok": True, "affected": 0}
+    conn = get_db()
+    ph = ",".join("?" * len(data.task_ids))
+    if data.action == "delete":
+        conn.execute(
+            f"DELETE FROM tasks WHERE project_id = ? AND id IN ({ph})",
+            (project_id, *data.task_ids),
+        )
+    elif data.action in ("status", "priority") and data.value:
+        col = "status" if data.action == "status" else "priority"
+        conn.execute(
+            f"UPDATE tasks SET {col} = ? WHERE project_id = ? AND id IN ({ph})",
+            (data.value, project_id, *data.task_ids),
+        )
+    conn.commit()
+    conn.close()
+    return {"ok": True, "affected": len(data.task_ids)}
+
+
+# ── PM-17: Task comments ──────────────────────
+
+class CommentCreate(BaseModel):
+    content: str
+
+@app.get("/tasks/{task_id}/comments")
+async def get_task_comments(task_id: int):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username
+        FROM task_comments c
+        JOIN users u ON u.id = c.user_id
+        WHERE c.task_id = ?
+        ORDER BY c.created_at
+    """, (task_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/tasks/{task_id}/comments")
+async def create_task_comment(request: Request, task_id: int, data: CommentCreate):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    content = data.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO task_comments (task_id, user_id, content) VALUES (?, ?, ?)",
+        (task_id, user["id"], content),
+    )
+    cid = cur.lastrowid
+    conn.commit()
+    row = conn.execute("""
+        SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username
+        FROM task_comments c JOIN users u ON u.id = c.user_id
+        WHERE c.id = ?
+    """, (cid,)).fetchone()
+    conn.close()
+    return dict(row)
+
+@app.delete("/comments/{comment_id}")
+async def delete_comment(request: Request, comment_id: int):
+    user = _get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    conn = get_db()
+    conn.execute("DELETE FROM task_comments WHERE id = ? AND user_id = ?", (comment_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+# ── PM-19: Task dependencies ──────────────────
+
+class DependencyCreate(BaseModel):
+    depends_on: int
+
+@app.get("/tasks/{task_id}/dependencies")
+async def get_task_dependencies(task_id: int):
+    conn = get_db()
+    blockers = conn.execute("""
+        SELECT d.id AS dep_id, t.id, t.title, t.status,
+               (p.ticket_prefix || '-' || t.ticket_num) AS ticket_id
+        FROM task_dependencies d
+        JOIN tasks t ON t.id = d.depends_on
+        JOIN projects p ON p.id = t.project_id
+        WHERE d.task_id = ?
+    """, (task_id,)).fetchall()
+    conn.close()
+    return {"blockers": [dict(r) for r in blockers]}
+
+@app.post("/tasks/{task_id}/dependencies")
+async def add_task_dependency(task_id: int, data: DependencyCreate):
+    if task_id == data.depends_on:
+        raise HTTPException(status_code=400, detail="A task cannot depend on itself")
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO task_dependencies (task_id, depends_on) VALUES (?, ?)",
+            (task_id, data.depends_on),
+        )
+        conn.commit()
+        dep_id = cur.lastrowid
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=400, detail=str(e))
+    row = conn.execute("""
+        SELECT d.id AS dep_id, t.id, t.title, t.status,
+               (p.ticket_prefix || '-' || t.ticket_num) AS ticket_id
+        FROM task_dependencies d
+        JOIN tasks t ON t.id = d.depends_on
+        JOIN projects p ON p.id = t.project_id
+        WHERE d.id = ?
+    """, (dep_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else {"ok": True}
+
+@app.delete("/task-dependencies/{dep_id}")
+async def delete_task_dependency(dep_id: int):
+    conn = get_db()
+    conn.execute("DELETE FROM task_dependencies WHERE id = ?", (dep_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+# ── PM-21: Webhooks ───────────────────────────
+
+class WebhookCreate(BaseModel):
+    url: str
+    events: Optional[List[str]] = None
+
+@app.get("/projects/{project_id}/webhooks")
+async def list_webhooks(project_id: int):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM webhook_configs WHERE project_id = ? ORDER BY created_at",
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/projects/{project_id}/webhooks")
+async def create_webhook(project_id: int, data: WebhookCreate):
+    events = data.events or ["task.status_changed"]
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO webhook_configs (project_id, url, events) VALUES (?, ?, ?)",
+        (project_id, data.url.strip(), json.dumps(events)),
+    )
+    wh_id = cur.lastrowid
+    conn.commit()
+    row = conn.execute("SELECT * FROM webhook_configs WHERE id = ?", (wh_id,)).fetchone()
+    conn.close()
+    return dict(row)
+
+@app.delete("/webhooks/{webhook_id}")
+async def delete_webhook(webhook_id: int):
+    conn = get_db()
+    conn.execute("DELETE FROM webhook_configs WHERE id = ?", (webhook_id,))
     conn.commit()
     conn.close()
     return {"ok": True}
@@ -1034,7 +1333,14 @@ async def api_project_by_repo(url: str):
 
 
 @app.get("/api/projects/{project_id}/tasks")
-async def api_list_tasks(project_id: int, status: str = "", priority: str = "", phase_id: int = 0):
+async def api_list_tasks(
+    project_id: int,
+    status: str = "",
+    priority: str = "",
+    phase_id: int = 0,
+    limit: int = 200,
+    offset: int = 0,
+):
     where: list = ["t.project_id = ?"]
     params: list = [project_id]
     if status:
@@ -1047,8 +1353,10 @@ async def api_list_tasks(project_id: int, status: str = "", priority: str = "", 
         f"SELECT t.*, p.ticket_prefix, "
         f"(p.ticket_prefix || '-' || t.ticket_num) AS ticket_id "
         f"FROM tasks t JOIN projects p ON p.id = t.project_id "
-        f"WHERE {' AND '.join(where)} ORDER BY t.priority DESC, t.created_at"
+        f"WHERE {' AND '.join(where)} ORDER BY t.priority DESC, t.created_at "
+        f"LIMIT ? OFFSET ?"
     )
+    params += [limit, offset]
     conn = get_db()
     rows = conn.execute(sql, params).fetchall()
     conn.close()
