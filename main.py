@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -17,6 +17,31 @@ import asyncio
 import urllib.request
 
 app = FastAPI(title="ProjectHub")
+
+
+class ConnectionManager:
+    def __init__(self):
+        self._rooms: dict[int, list[WebSocket]] = {}
+
+    async def connect(self, ws: WebSocket, room_id: int):
+        await ws.accept()
+        self._rooms.setdefault(room_id, []).append(ws)
+
+    def disconnect(self, ws: WebSocket, room_id: int):
+        self._rooms[room_id] = [w for w in self._rooms.get(room_id, []) if w is not ws]
+
+    async def broadcast(self, room_id: int, message: dict):
+        dead = []
+        for ws in self._rooms.get(room_id, []):
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws, room_id)
+
+
+manager = ConnectionManager()
 
 # ── PM-20: Rate limiting ──
 _rate_store: dict = defaultdict(list)
@@ -2056,7 +2081,9 @@ async def send_message(request: Request, room_id: int, data: MessageCreate):
         FROM chat_messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?
     """, (msg_id,)).fetchone()
     conn.close()
-    return dict(row)
+    payload = dict(row)
+    await manager.broadcast(room_id, payload)
+    return payload
 
 
 @app.post("/api/chat/rooms/{room_id}/read")
@@ -2096,3 +2123,28 @@ async def get_room_reads(request: Request, room_id: int):
     """, (room_id, user["id"])).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+@app.websocket("/ws/chat/{room_id}")
+async def chat_websocket(websocket: WebSocket, room_id: int):
+    user = _get_session_user(websocket)
+    if not user:
+        await websocket.close(code=4001)
+        return
+    conn = get_db()
+    member = conn.execute(
+        "SELECT 1 FROM chat_members WHERE room_id=? AND user_id=?",
+        (room_id, user["id"])
+    ).fetchone()
+    conn.close()
+    if not member:
+        await websocket.close(code=4003)
+        return
+    await manager.connect(websocket, room_id)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(websocket, room_id)

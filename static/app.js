@@ -2053,6 +2053,7 @@ function initChat() {
   let _lastMsgTime   = '';
   let _pollInterval  = null;
   let _readInterval  = null;
+  let _ws            = null;
   let _allRooms      = [];
   const _renderedIds = new Set();
 
@@ -2151,6 +2152,7 @@ function initChat() {
     _lastMsgTime  = new Date().toISOString().replace('T', ' ').slice(0, 19);
     clearInterval(_pollInterval);
     clearInterval(_readInterval);
+    if (_ws) { _ws.close(1000); _ws = null; }
 
     document.getElementById('chat-empty').style.display  = 'none';
     document.getElementById('chat-pane').style.display   = 'flex';
@@ -2167,25 +2169,51 @@ function initChat() {
     _markRead(roomId);
     _fetchReads(roomId);
 
-    // Poll every 2s for new messages only (read-only, no writes)
-    let _pollCount = 0;
-    _pollInterval = setInterval(async () => {
-      if (!_activeRoomId) return;
-      try {
-        const newMsgs = await fetch(
-          `/api/chat/rooms/${_activeRoomId}/messages?since=${encodeURIComponent(_lastMsgTime)}`
-        ).then(r => r.json());
-        if (newMsgs.length) renderMessages(newMsgs, true);
-        _pollCount++;
-        if (_pollCount % 15 === 0) _fetchReads(_activeRoomId);
-      } catch {}
-    }, 2000);
+    // Connect WebSocket for instant message delivery
+    _connectWS(roomId);
 
-    // Mark as read on a slow heartbeat (30s) — keeps read receipts current without hammering SQLite
+    // Mark as read on a slow heartbeat (30s)
     if (_readInterval) clearInterval(_readInterval);
     _readInterval = setInterval(() => {
       if (_activeRoomId) _markRead(_activeRoomId);
     }, 30000);
+  }
+
+  function _connectWS(roomId) {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${location.host}/ws/chat/${roomId}`);
+    _ws = ws;
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (_activeRoomId === roomId) renderMessages([msg], true);
+      } catch {}
+    };
+
+    ws.onclose = (e) => {
+      if (_ws !== ws) return; // superseded by a newer connection
+      if (e.code !== 1000 && _activeRoomId === roomId) {
+        // Unexpected close — reconnect after 2s
+        setTimeout(() => {
+          if (_activeRoomId === roomId) _connectWS(roomId);
+        }, 2000);
+      }
+    };
+
+    ws.onerror = () => {
+      // WebSocket unavailable — fall back to 2s polling
+      if (_pollInterval) return;
+      _pollInterval = setInterval(async () => {
+        if (!_activeRoomId) return;
+        try {
+          const newMsgs = await fetch(
+            `/api/chat/rooms/${_activeRoomId}/messages?since=${encodeURIComponent(_lastMsgTime)}`
+          ).then(r => r.json());
+          if (newMsgs.length) renderMessages(newMsgs, true);
+        } catch {}
+      }, 2000);
+    };
   }
 
   // Room list click (group rooms)
