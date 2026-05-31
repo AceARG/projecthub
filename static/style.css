@@ -3346,9 +3346,10 @@ img.profile-avatar {
 .orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(110px);
+  filter: blur(75px);
   background: var(--accent);
   will-change: transform;
+  transform: translateZ(0);
 }
 .orb-1 {
   width: 750px; height: 750px;
@@ -3420,18 +3421,16 @@ body { background: var(--bg); }
               0 0 8px  color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
-/* Task cards */
+/* Task cards — no per-card backdrop-filter (column already blurs the background) */
 .task-card {
   background: color-mix(in srgb, var(--surface-2) 60%, transparent);
-  backdrop-filter: blur(12px) var(--glass-sat);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
   border-color: var(--glass-border);
   box-shadow: var(--glass-shine), var(--shadow);
-  transition: transform .2s ease, border-color .2s, box-shadow .2s, background .2s;
+  will-change: transform;
+  transition: transform .13s ease, border-color .13s, box-shadow .13s;
 }
 .task-card:hover {
   transform: translateY(-4px);
-  background: color-mix(in srgb, var(--surface-2) 75%, transparent);
   border-color: var(--glass-accent-border);
   box-shadow: var(--glass-shine),
               0 10px 36px color-mix(in srgb, var(--accent) 20%, transparent),
@@ -3445,7 +3444,8 @@ body { background: var(--bg); }
   -webkit-backdrop-filter: blur(12px) saturate(160%);
   border-color: var(--glass-border);
   box-shadow: var(--glass-shine);
-  transition: border-color .2s;
+  transition: border-color .13s;
+  contain: layout paint;
 }
 
 /* Modals */
@@ -3473,7 +3473,7 @@ body { background: var(--bg); }
   -webkit-backdrop-filter: blur(14px) saturate(160%);
   border-color: var(--glass-border);
   box-shadow: var(--glass-shine), var(--shadow);
-  transition: border-color .2s, box-shadow .2s;
+  transition: border-color .13s, box-shadow .13s;
 }
 .settings-card:hover {
   border-color: var(--glass-accent-border);
@@ -3492,11 +3492,10 @@ body { background: var(--bg); }
 /* Stat summary cards */
 .stat-card {
   background: color-mix(in srgb, var(--surface-2) 60%, transparent);
-  backdrop-filter: blur(10px) var(--glass-sat);
-  -webkit-backdrop-filter: blur(10px) saturate(160%);
   border-color: var(--glass-border);
   box-shadow: var(--glass-shine), var(--shadow);
-  transition: transform .2s ease, border-color .2s, box-shadow .2s;
+  will-change: transform;
+  transition: transform .13s ease, border-color .13s, box-shadow .13s;
 }
 .stat-card:hover {
   transform: translateY(-3px);
@@ -3511,7 +3510,8 @@ body { background: var(--bg); }
   -webkit-backdrop-filter: blur(12px) saturate(160%);
   border-color: var(--glass-border);
   box-shadow: var(--glass-shine), var(--shadow);
-  transition: transform .22s ease, border-color .2s, box-shadow .2s;
+  will-change: transform;
+  transition: transform .13s ease, border-color .13s, box-shadow .13s;
 }
 .project-card:hover {
   transform: translateY(-5px);
@@ -3527,13 +3527,14 @@ body { background: var(--bg); }
   backdrop-filter: blur(12px) var(--glass-sat);
   -webkit-backdrop-filter: blur(12px) saturate(160%);
   border-color: var(--glass-border);
+  contain: layout paint;
 }
 
-/* Backlog items */
+/* Backlog items — no backdrop-filter (section handles it) */
 .backlog-item {
   background: color-mix(in srgb, var(--surface) 50%, transparent);
   border-color: var(--glass-border);
-  transition: background .15s, border-color .15s, box-shadow .15s;
+  transition: border-color .13s, box-shadow .13s;
 }
 .backlog-item:hover {
   background: color-mix(in srgb, var(--surface-2) 68%, transparent);
@@ -3550,13 +3551,12 @@ body { background: var(--bg); }
   box-shadow: var(--glass-shine);
 }
 
-/* Phase task cards */
+/* Phase task cards — no per-card backdrop-filter */
 .phase-task-card {
   background: color-mix(in srgb, var(--surface-2) 60%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   border-color: var(--glass-border);
-  transition: transform .18s ease, border-color .18s;
+  will-change: transform;
+  transition: transform .13s ease, border-color .13s;
 }
 .phase-task-card:hover {
   transform: translateY(-2px);
