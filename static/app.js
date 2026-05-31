@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Theme Engine
@@ -115,8 +115,10 @@ function applyTheme(theme, mode) {
   document.querySelectorAll('.swatch').forEach(s =>
     s.classList.toggle('active', s.dataset.theme === theme));
 
+  const _sunSVG  = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+  const _moonSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
   document.querySelectorAll('.mode-toggle').forEach(btn =>
-    btn.textContent = mode === 'dark' ? '☀️' : '🌙');
+    btn.innerHTML = mode === 'dark' ? _sunSVG : _moonSVG);
 
   localStorage.setItem('ph-theme', theme);
   localStorage.setItem('ph-mode',  mode);
@@ -345,8 +347,8 @@ function dueCls(iso) {
 
 function makeCardHTML(task) {
   const taskType = task.type || 'task';
-  const bugBadge     = taskType === 'bug' ? `<span class="type-badge type-bug">🐛 Bug</span>` : '';
-  const blockedBadge = task.is_blocked    ? `<span class="blocked-badge">⛔ Blocked</span>`  : '';
+  const bugBadge     = taskType === 'bug' ? `<span class="type-badge type-bug"><svg class="icon-svg" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.5 1.5"/><path d="M14.5 3.5L16 2"/><path d="M12 2a5 5 0 0 1 5 5v6a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M9 9h6"/><path d="M9 12h6"/><path d="M4.5 9L7 11"/><path d="M4.5 15L7 13"/><path d="M19.5 9L17 11"/><path d="M19.5 15L17 13"/></svg> Bug</span>` : '';
+  const blockedBadge = task.is_blocked    ? `<span class="blocked-badge"><svg class="icon-svg" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Blocked</span>`  : '';
   const dueBadge     = task.due_date
     ? `<span class="due-chip ${dueCls(task.due_date)}">${fmtDate(task.due_date)}</span>` : '';
   return `<div class="task-card" data-task-id="${task.id}" data-status="${escapeHtml(task.status || '')}" data-type="${taskType}" draggable="true">
@@ -369,8 +371,8 @@ function makeCardHTML(task) {
 
 function makeBacklogItemHTML(task) {
   const taskType     = task.type || 'task';
-  const bugBadge     = taskType === 'bug' ? `<span class="type-badge type-bug">🐛 Bug</span>` : '';
-  const blockedBadge = task.is_blocked    ? `<span class="blocked-badge">⛔ Blocked</span>`  : '';
+  const bugBadge     = taskType === 'bug' ? `<span class="type-badge type-bug"><svg class="icon-svg" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.5 1.5"/><path d="M14.5 3.5L16 2"/><path d="M12 2a5 5 0 0 1 5 5v6a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M9 9h6"/><path d="M9 12h6"/><path d="M4.5 9L7 11"/><path d="M4.5 15L7 13"/><path d="M19.5 9L17 11"/><path d="M19.5 15L17 13"/></svg> Bug</span>` : '';
+  const blockedBadge = task.is_blocked    ? `<span class="blocked-badge"><svg class="icon-svg" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Blocked</span>`  : '';
   const dueBadge     = task.due_date
     ? `<span class="due-chip ${dueCls(task.due_date)}">${fmtDate(task.due_date)}</span>` : '';
   const selCls = BL_STATUS_CLS[task.status] || 's-backlog';
@@ -398,7 +400,7 @@ function makePhaseTaskCardHTML(task, phaseId) {
   const si = STATUS_INFO[task.status] || STATUS_INFO.backlog;
   const pid = phaseId != null ? phaseId : '';
   const taskType = task.type || 'task';
-  const bugBadge = taskType === 'bug' ? `<span class="type-badge type-bug">🐛 Bug</span>` : '';
+  const bugBadge = taskType === 'bug' ? `<span class="type-badge type-bug"><svg class="icon-svg" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.5 1.5"/><path d="M14.5 3.5L16 2"/><path d="M12 2a5 5 0 0 1 5 5v6a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M9 9h6"/><path d="M9 12h6"/><path d="M4.5 9L7 11"/><path d="M4.5 15L7 13"/><path d="M19.5 9L17 11"/><path d="M19.5 15L17 13"/></svg> Bug</span>` : '';
   return `<div class="phase-task-card" data-task-id="${task.id}" data-phase-id="${pid}" data-type="${taskType}" draggable="true">
     <div class="phase-task-header">
       <span class="priority-dot ${escapeHtml(task.priority)}"></span>
@@ -1936,6 +1938,12 @@ function initKeyboardShortcuts() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Inject animated ambient orbs for glassmorphism
+  const orbBg = document.createElement('div');
+  orbBg.className = 'orb-bg';
+  orbBg.innerHTML = '<div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div>';
+  document.body.prepend(orbBg);
+
   initTheme();
   initProfile();
   initSignupPage();
